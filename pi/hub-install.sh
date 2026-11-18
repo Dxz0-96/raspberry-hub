@@ -30,8 +30,8 @@ PMTILES_VERSION=1.31.2
 PMTILES_SHA256=f8bd47e7ea866863489cad588fbaf2f31f42e5821f7a03f009b3769f05801cb1   # Linux arm64
 
 ftl_ready() {      # waits until the Pi-hole web interface and DNS answer; $1 = host:port of the web interface
-  local i code
-  for i in $(seq 1 40); do
+  local code
+  for _ in $(seq 1 40); do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://$1/api/auth" 2>/dev/null || true)
     if { [ "$code" = 200 ] || [ "$code" = 401 ]; } && [ -n "$(dig +short +time=2 +tries=1 www.debian.org @127.0.0.1 2>/dev/null | tail -1)" ]; then
       return 0
