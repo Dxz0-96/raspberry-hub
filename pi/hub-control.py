@@ -2,7 +2,7 @@
 """raspberry-hub: service status and switches, services added from the hub, hardware monitor.
 
 No login required (anyone on the LAN):
-    GET  /control/status                state of every service (with visits per minute), session, DNS
+    GET  /control/status                state of every service (with visits per minute), session, DNS, version
     GET  /control/system                hardware readings right now
     GET  /control/system/history        last hour (one point every 5 s) and last 24 hours (one per minute)
     POST /control/login                 {username, password} -> session cookie
@@ -60,6 +60,8 @@ LOG_PORT = int(os.environ.get("HUB_LOG_PORT", "8084"))
 PIHOLE_API = os.environ.get("HUB_PIHOLE_API", "http://127.0.0.1:8080/api")
 CLI_PW_FILE = os.environ.get("HUB_PIHOLE_CLI_PW", "/etc/pihole/cli_pw")
 UNBOUND_FILE = "/etc/unbound/unbound.conf.d/forward-dot.conf"
+# written next to this script by hub-install.sh: the version of the Raspberry Pi side of the hub
+VERSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
 
 # A session stays valid until "Log out": the cookie lasts 400 days (the most browsers accept) and is
 # renewed once a day while the hub is in use. Sessions survive reboots.
@@ -74,6 +76,7 @@ MAX_ADDED_SERVICES = 40
 CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
 NCPU = os.cpu_count() or 1
 VALID_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+VALID_TOKEN = re.compile(r"[A-Za-z0-9_-]{32,64}")
 VALID_URL = re.compile(r"^(https?://[^\s<>\"'\\]{3,280}|/[^\s<>\"'\\]{0,280})$")
 
 
@@ -820,13 +823,16 @@ class Handler(BaseHTTPRequestHandler):
         return forwarded or self.client_address[0]
 
     def token(self):
+        """The session token from the cookie, only if it has the shape of one (secrets.token_urlsafe):
+        it is sent back in Set-Cookie when the session is renewed, so nothing else may get through."""
         for piece in self.headers.get("Cookie", "").split(";"):
             name, _, value = piece.strip().partition("=")
             if name == "hub_session":
-                return value
+                return value if VALID_TOKEN.fullmatch(value) else None
         return None
 
     def cookie(self, token, max_age):
+        token = token if VALID_TOKEN.fullmatch(token or "") else ""
         return ("Set-Cookie", f"hub_session={token}; Path=/control; Max-Age={max_age}; HttpOnly; SameSite=Strict"
                 + ("; Secure" if SECURE_COOKIE else ""))
 
@@ -880,6 +886,7 @@ class Handler(BaseHTTPRequestHandler):
                         for ident, live in watcher.read().items()}
             return self.reply(200, {"time": round(time.time()), "authenticated": bool(user), "user": user,
                                     "configured": sessions.credentials() is not None,
+                                    "version": read_text(VERSION_FILE).strip() or None,
                                     "services": services, "dns": dns}, renewal)
         if parts == ["system"]:
             return self.reply(200, monitor.current())

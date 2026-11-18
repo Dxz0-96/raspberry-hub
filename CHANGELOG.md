@@ -1,8 +1,10 @@
 # Changelog
 
-All notable changes to this project are documented here. The format is based on
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to this project. From 2.0.0 on, entries are written by
+[release-please](https://github.com/googleapis/release-please) from the
+[Conventional Commits](https://www.conventionalcommits.org/) merged into `main`; the project follows
+[Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
+[docs/upgrading.md](docs/upgrading.md).
 
 ## [Unreleased]
 
@@ -60,6 +62,3 @@ The whole project is now in English, and the interface speaks English and Italia
 
 First public version (in Italian): Caddy in front of Pi-hole, offline Wikipedia and maps with address search,
 service switches, services added from the hub, hardware monitor.
-
-[Unreleased]: https://github.com/Dxz0-96/raspberry-hub/compare/d724cc0...HEAD
-[1.0.0]: https://github.com/Dxz0-96/raspberry-hub/tree/d724cc0

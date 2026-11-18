@@ -11,6 +11,7 @@
 //   MOCK_OFF=wikipedia,maps             services that start switched off (default: wikipedia; "" = all on)
 //   MOCK_ALERTS=temperature,disk        hardware alerts to show
 //   MOCK_NO_PASSWORD=1                  as if the hub password had never been set
+//   MOCK_PI_VERSION=1.0.0               version reported by the Raspberry Pi scripts (default: the site's)
 // Without MOCK_PI, /wiki answers with a fake Wikipedia (dev/fake-wikipedia.mjs).
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -27,6 +28,7 @@ const PORT = Number(process.env.PORT ?? 8790);
 const TILES = process.env.MOCK_TILES;
 const PI = process.env.MOCK_PI ? new URL(process.env.MOCK_PI) : null;
 const PI_CA = process.env.MOCK_PI_CA ? readFileSync(process.env.MOCK_PI_CA) : undefined;
+const PI_VERSION = process.env.MOCK_PI_VERSION ?? JSON.parse(readFileSync(join(HERE, "..", "package.json"), "utf8")).version;
 
 /** Forwards the request to the real Raspberry Pi, as if it arrived at https://raspberry. */
 function toRaspberry(req, res) {
@@ -172,8 +174,10 @@ function file(res, path, status = 200, req) {
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = decodeURIComponent(url.pathname);
-  if (req.headers.origin) {
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
+  // only pages served from this computer (npm run dev on another port) may call the mock with cookies
+  const origin = req.headers.origin ?? "";
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Hub, Range");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
@@ -190,12 +194,15 @@ createServer(async (req, res) => {
       addresses: { date: "2026-11-08", bytes: 1.1e9, result: "ok", running: false },
     });
   }
-  if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", services: states(), dns: dns() });
+  if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", version: PI_VERSION, services: states(), dns: dns() });
   if (p === "/control/system") return json(res, 200, system());
   if (p === "/control/system/history") return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day } });
 
   if (process.env.MOCK_SEARCH && (p === "/search" || p.startsWith("/search/"))) {
-    const target = new URL(req.url, process.env.MOCK_SEARCH);
+    // the host always comes from MOCK_SEARCH: only the path and the query come from the request
+    const target = new URL(process.env.MOCK_SEARCH);
+    target.pathname = url.pathname;
+    target.search = url.search;
     const forward = httpRequest(target, (response) => {
       res.writeHead(response.statusCode ?? 502, { "Content-Type": response.headers["content-type"] ?? "application/json" });
       response.pipe(res);

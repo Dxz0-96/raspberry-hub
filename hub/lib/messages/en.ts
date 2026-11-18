@@ -210,6 +210,8 @@ export const en = {
     about:
       "The home hub for Raspberry Pi: Pi-hole, offline Wikipedia and maps, hardware status. Everything runs on the Raspberry Pi, without external services.",
     built: (date: string) => `Built on ${date}`,
+    versionMismatch: (site: string, pi: string) =>
+      `This page is version ${site}, the Raspberry Pi scripts are ${pi}. To bring them in step, run`,
     source: "Source code",
     sourceOnGitHub: (repo: string) => `${repo} on GitHub`,
     reportProblem: "Report a problem",

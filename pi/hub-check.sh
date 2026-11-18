@@ -29,6 +29,7 @@ if [ "${1:-}" = "--wait" ]; then
   done
 fi
 
+echo "raspberry-hub $(cat /usr/local/lib/raspberry-hub/VERSION 2>/dev/null || echo "(version unknown: run hub-install.sh)")"
 echo "Raspberry Pi up for: $(uptime -p | sed 's/^up //')"
 echo "Services"
 for u in pihole-FTL unbound caddy hub-control; do

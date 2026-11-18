@@ -1,6 +1,7 @@
 # raspberry hub
 
 [![CI](https://github.com/Dxz0-96/raspberry-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/Dxz0-96/raspberry-hub/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Dxz0-96/raspberry-hub?sort=semver)](https://github.com/Dxz0-96/raspberry-hub/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Conventional Commits](https://img.shields.io/badge/commits-conventional-blue.svg)](CONTRIBUTING.md#commit-messages)
 
@@ -109,11 +110,14 @@ That is the same command as the installation: `hub-install.sh` is safe to run ag
 added services, switch states and downloaded content, and upgrades older installations in place
 (`pi/hub-migrate.py` moves and converts files whose names or format changed; it does nothing when there is
 nothing to migrate). Interface-only changes can be published faster with `.\deploy.ps1`, which copies just
-the website.
+the website; the footer of the hub warns when the website and the Pi scripts come from different releases.
+
+Releases and their notes are on the [releases page](https://github.com/Dxz0-96/raspberry-hub/releases) and in
+[CHANGELOG.md](CHANGELOG.md).
 
 > **Upgrading from 1.x** (the Italian-named version): run `.\deploy.ps1 -Update` once. Files, settings,
 > the address index and the old URLs are converted automatically; bookmarks to `/mappe/` keep working.
-> Devices that were logged in have to log in once more. See [CHANGELOG.md](CHANGELOG.md).
+> Devices that were logged in have to log in once more. Details in [docs/upgrading.md](docs/upgrading.md).
 
 ## Everyday use
 

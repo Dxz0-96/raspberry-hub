@@ -297,6 +297,7 @@ class HubControl(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(data["authenticated"])
         self.assertTrue(data["configured"])
+        self.assertIn("version", data)             # None here: hub-install.sh writes the VERSION file
 
     def test_system_readings(self):
         time.sleep(5.5)                            # the monitor samples every 5 seconds
