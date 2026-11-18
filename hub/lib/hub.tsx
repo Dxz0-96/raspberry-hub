@@ -126,6 +126,8 @@ interface Hub {
   authenticated: boolean;
   user: string | null;
   configured: boolean;
+  /** Version of the Raspberry Pi scripts, when the Pi reports it */
+  piVersion: string | null;
   /** ids of the services whose switch is working */
   busy: Record<string, boolean>;
   toast: Toast | null;
@@ -302,6 +304,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       authenticated: status?.authenticated ?? false,
       user: status?.user ?? null,
       configured: status?.configured ?? true,
+      piVersion: status?.version ?? null,
       busy,
       toast,
       closeToast: () => setToast(null),
