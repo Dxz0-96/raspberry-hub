@@ -36,6 +36,15 @@ test.describe("Home", () => {
     await expect(page.getByRole("button", { name: "admin" })).toBeVisible();
   });
 
+  test("the footer links to the repository", async ({ page }) => {
+    await page.goto("/");
+    const footer = page.getByRole("contentinfo");
+    await expect(footer.getByRole("link", { name: /^Dxz0-96\/raspberry-hub on GitHub/ }))
+      .toHaveAttribute("href", "https://github.com/Dxz0-96/raspberry-hub");
+    await expect(footer.getByRole("link", { name: /^Report a problem/ }))
+      .toHaveAttribute("href", "https://github.com/Dxz0-96/raspberry-hub/issues/new/choose");
+  });
+
   test("the page Caddy shows for a service that is off", async ({ page }) => {
     await page.goto("/unavailable/");
     await expect(page.getByRole("heading", { name: "This service is off or not responding" })).toBeVisible();

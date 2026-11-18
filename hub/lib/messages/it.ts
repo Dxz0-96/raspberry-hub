@@ -208,7 +208,9 @@ export const it: Messages = {
     about:
       "L'hub di casa per Raspberry Pi: Pi-hole, Wikipedia e mappe offline, stato dell'hardware. Tutto gira sul Raspberry, senza servizi esterni.",
     built: (date) => `Versione compilata il ${date}`,
-    source: "Codice su GitHub",
+    source: "Codice sorgente",
+    sourceOnGitHub: (repo) => `${repo} su GitHub`,
+    reportProblem: "Segnala un problema",
     license: (name) => `Licenza ${name}`,
     homeCa: "Certificato di casa",
     sourcesBeforeLink: "Mappe: © contributori di ",

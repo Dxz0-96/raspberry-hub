@@ -12,6 +12,8 @@ The whole project is now in English, and the interface speaks English and Italia
 
 - English and Italian interface. The language follows the browser on a device's first visit and can be
   changed with the `EN` / `IT` buttons in the header; the choice is remembered on that device.
+- The footer names the GitHub repository, links to the issue forms ("Report a problem") and links the
+  version to the exact commit the site was built from.
 - `.\deploy.ps1 -Update`: builds the site, copies the `pi/` scripts to the Raspberry Pi and runs
   `hub-install.sh` there, in one command. Also the way to upgrade.
 - `pi/hub-migrate.py`: upgrades installations made by version 1.x in place (run automatically by
