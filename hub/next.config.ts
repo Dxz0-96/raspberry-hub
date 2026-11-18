@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NextConfig } from "next";
 
-// Versione, licenza e indirizzo del codice vengono da package.json; il commit da git, se c'e'.
-// Finiscono nel pie' di pagina dell'hub.
-const pacchetto = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
+// Version, license and source address come from package.json; the commit from git, when available.
+// They end up in the footer of the hub.
+const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
   version: string;
   license?: string;
   repository?: string | { url?: string };
 };
-const repo = (typeof pacchetto.repository === "string" ? pacchetto.repository : pacchetto.repository?.url ?? "")
+const repo = (typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url ?? "")
   .replace(/^git\+/, "")
   .replace(/\.git$/, "");
 
@@ -22,18 +22,18 @@ function commit(): string {
   }
 }
 
-// L'hub e' un sito statico: si compila sul PC e si copia sul Raspberry, dove lo serve Caddy.
+// The hub is a static site: it is built on the PC and copied to the Raspberry Pi, where Caddy serves it.
 const config: NextConfig = {
   output: "export",
   trailingSlash: true,
   images: { unoptimized: true },
   reactStrictMode: true,
   env: {
-    NEXT_PUBLIC_VERSIONE: pacchetto.version,
-    NEXT_PUBLIC_LICENZA: pacchetto.license ?? "",
+    NEXT_PUBLIC_VERSION: pkg.version,
+    NEXT_PUBLIC_LICENSE: pkg.license ?? "",
     NEXT_PUBLIC_REPO: repo,
     NEXT_PUBLIC_COMMIT: commit(),
-    NEXT_PUBLIC_COMPILATO: new Date().toISOString(),
+    NEXT_PUBLIC_BUILT: new Date().toISOString(),
   },
 };
 

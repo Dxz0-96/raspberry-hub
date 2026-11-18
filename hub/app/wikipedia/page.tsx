@@ -1,17 +1,17 @@
-import type { Metadata } from "next";
-import { PiePagina } from "@/components/PiePagina";
-import { Testata } from "@/components/Testata";
+import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
 import Wikipedia from "@/components/Wikipedia";
+import { PageTitle } from "@/lib/i18n";
 
-export const metadata: Metadata = { title: "Wikipedia" };
 
-export default function PaginaWikipedia() {
+export default function WikipediaPage() {
   return (
     <>
-      <Testata titolo="Wikipedia" indietro />
-      {/* barra di ricerca (sotto la testata, larga quanto la finestra) e contenuto */}
+      <PageTitle page="wikipedia" />
+      <Header title="Wikipedia" back />
+      {/* search bar (under the header, as wide as the window) and content */}
       <Wikipedia />
-      <PiePagina />
+      <Footer />
     </>
   );
 }

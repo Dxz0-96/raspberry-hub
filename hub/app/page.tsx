@@ -1,34 +1,36 @@
-import Link from "next/link";
-import { Andamento, Avvisi } from "@/components/Andamento";
-import { ReteESpazio } from "@/components/Diagrammi";
-import { Flusso } from "@/components/Impulsi";
-import { Scheda, SchedaCompatta } from "@/components/Scheda";
-import { PiePagina } from "@/components/PiePagina";
-import { Servizi } from "@/components/Servizi";
-import { Testata } from "@/components/Testata";
+import { Board, CompactBoard } from "@/components/Board";
+import { BoardLink } from "@/components/BoardLink";
+import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
+import { NetworkAndStorage } from "@/components/NetworkAndStorage";
+import { Services } from "@/components/Services";
+import { TrafficFlow } from "@/components/TrafficFlow";
+import { HardwareAlerts, Trends } from "@/components/Trends";
+import { PageTitle } from "@/lib/i18n";
 
-export default function Casa() {
+export default function Home() {
   return (
     <>
-      <Testata />
-      <main className="pagina">
-      <Avvisi />
-      <div className="casa">
-        <div className="casa-scheda">
-          <div className="solo-largo">
-            <Scheda cavo />
+      <PageTitle page={null} />
+      <Header />
+      <main className="page">
+        <HardwareAlerts />
+        <div className="home-grid">
+          <div className="home-board">
+            <div className="wide-only">
+              <Board cable />
+            </div>
+            <BoardLink>
+              <CompactBoard />
+            </BoardLink>
           </div>
-          <Link href="/hardware/" className="solo-stretto scheda-tocco" aria-label="Apri il dettaglio dell'hardware">
-            <SchedaCompatta />
-          </Link>
+          <Services />
+          <TrafficFlow />
         </div>
-        <Servizi />
-        <Flusso />
-      </div>
-      <ReteESpazio />
-      <Andamento />
+        <NetworkAndStorage />
+        <Trends />
       </main>
-      <PiePagina />
+      <Footer />
     </>
   );
 }

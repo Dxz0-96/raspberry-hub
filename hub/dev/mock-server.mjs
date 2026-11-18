@@ -1,34 +1,36 @@
-// Finto Raspberry per provare l'hub sul PC: risponde come hub-control.py, hub-search.py e Caddy,
-// e serve il sito compilato (cartella out/). Nessun dato vero: tutto resta in memoria.
+// Mock Raspberry Pi to try the hub on a PC: answers like hub-control.py, hub-search.py and Caddy,
+// and serves the built site (out/ folder). No real data: everything stays in memory.
 //
-//   npm run build && npm run mock        poi apri http://localhost:8790
-//   credenziali di prova: admin / prova1234
-//   MOCK_TILES=percorso/di/un/file.pmtiles npm run mock    per provare anche la mappa
-//   MOCK_PI=https://127.0.0.1:8443 MOCK_PI_CA=ca-di-casa.crt npm run mock
-//       mappa e ricerca vere: /tiles e /cerca passano al Raspberry (per esempio attraverso
-//       "ssh -L 8443:127.0.0.1:443 utente@indirizzo-del-raspberry"), verificandone il certificato di casa
-//   MOCK_CERCA=http://127.0.0.1:8082   la ricerca va a un hub-search.py lanciato sul PC con un indice di prova
-//   MOCK_SPENTI=wikipedia,mappe        servizi che partono spenti (predefinito: wikipedia; "" = tutti accesi)
-// Senza MOCK_PI, /wiki risponde con una Wikipedia finta (dev/finta-wikipedia.mjs).
-import { createServer, request as richiestaHttp } from "node:http";
-import { request as richiestaHttps } from "node:https";
+//   npm run build && npm run mock        then open http://localhost:8790
+//   test login: admin / test1234
+//   MOCK_TILES=path/to/a/file.pmtiles npm run mock    to try the map too
+//   MOCK_PI=https://127.0.0.1:8443 MOCK_PI_CA=home-ca.crt npm run mock
+//       real map and search: /tiles and /search go to the Raspberry Pi (for example through
+//       "ssh -L 8443:127.0.0.1:443 user@raspberry-address"), checking its home certificate
+//   MOCK_SEARCH=http://127.0.0.1:8082   search goes to a hub-search.py started on the PC with a test index
+//   MOCK_OFF=wikipedia,maps             services that start switched off (default: wikipedia; "" = all on)
+//   MOCK_ALERTS=temperature,disk        hardware alerts to show
+//   MOCK_NO_PASSWORD=1                  as if the hub password had never been set
+// Without MOCK_PI, /wiki answers with a fake Wikipedia (dev/fake-wikipedia.mjs).
+import { createServer, request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { wikipediaFinta } from "./finta-wikipedia.mjs";
+import { fakeWikipedia } from "./fake-wikipedia.mjs";
 
-const QUI = dirname(fileURLToPath(import.meta.url));
-const SITO = join(QUI, "..", "out");
-const ICONE = join(QUI, "..", "..", "pi", "icone");
-const PORTA = Number(process.env.PORT ?? 8790);
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SITE = join(HERE, "..", "out");
+const ICONS = join(HERE, "..", "..", "pi", "icons");
+const PORT = Number(process.env.PORT ?? 8790);
 const TILES = process.env.MOCK_TILES;
 const PI = process.env.MOCK_PI ? new URL(process.env.MOCK_PI) : null;
 const PI_CA = process.env.MOCK_PI_CA ? readFileSync(process.env.MOCK_PI_CA) : undefined;
 
-/** Passa la richiesta al Raspberry vero, come se arrivasse a https://raspberry. */
-function alRaspberry(req, res) {
-  const inoltro = richiestaHttps(
+/** Forwards the request to the real Raspberry Pi, as if it arrived at https://raspberry. */
+function toRaspberry(req, res) {
+  const forward = httpsRequest(
     {
       host: PI.hostname,
       port: PI.port || 443,
@@ -38,133 +40,133 @@ function alRaspberry(req, res) {
       ca: PI_CA,
       headers: { Host: "raspberry", ...(req.headers.range ? { Range: req.headers.range } : {}) },
     },
-    (risposta) => {
-      const tenute = {};
-      for (const nome of ["content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified", "location"]) {
-        if (risposta.headers[nome]) tenute[nome] = risposta.headers[nome];
+    (response) => {
+      const kept = {};
+      for (const name of ["content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified", "location"]) {
+        if (response.headers[name]) kept[name] = response.headers[name];
       }
-      res.writeHead(risposta.statusCode ?? 502, tenute);
-      risposta.pipe(res);
+      res.writeHead(response.statusCode ?? 502, kept);
+      response.pipe(res);
     },
   );
-  inoltro.on("error", (errore) => {
+  forward.on("error", (error) => {
     if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end(`Raspberry non raggiungibile: ${errore.message}`);
+    res.end(`Raspberry Pi not reachable: ${error.message}`);
   });
-  inoltro.end();
+  forward.end();
 }
-const TIPI = {
+const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2",
   ".woff": "font/woff", ".pbf": "application/x-protobuf", ".txt": "text/plain; charset=utf-8", ".ico": "image/x-icon",
 };
 
-let servizi = JSON.parse(readFileSync(join(QUI, "..", "..", "pi", "servizi.json"), "utf8")).servizi;
-servizi.push({ id: "u-nas", nome: "NAS", descrizione: "Foto e documenti di casa", url: "http://192.168.1.20/", tipo: "link", aggiunto: true });
-const icone = new Map();
-const spenti = new Set((process.env.MOCK_SPENTI ?? "wikipedia").split(",").filter(Boolean));
-let bloccoAttivo = true;
-let password = "prova1234";
-let errori = 0;
-const sessioni = new Set();
-const avvio = Date.now();
+let services = JSON.parse(readFileSync(join(HERE, "..", "..", "pi", "services.json"), "utf8")).services;
+services.push({ id: "u-nas", name: "NAS", description: "Home photos and documents", url: "http://192.168.1.20/", type: "link", added: true });
+const icons = new Map();
+const off = new Set((process.env.MOCK_OFF ?? "wikipedia").split(",").filter(Boolean));
+let blocking = true;
+let password = "test1234";
+let failures = 0;
+const sessions = new Set();
+const started = Date.now();
 
-const storico = { recente: [], giorno: [] };
-function onda(t, base, ampiezza) {
-  return base + ampiezza * (0.5 + 0.5 * Math.sin(t / 380)) + (Math.sin(t / 47) + Math.sin(t / 13)) * ampiezza * 0.12;
+const history = { recent: [], day: [] };
+function wave(t, base, amplitude) {
+  return base + amplitude * (0.5 + 0.5 * Math.sin(t / 380)) + (Math.sin(t / 47) + Math.sin(t / 13)) * amplitude * 0.12;
 }
 {
-  const adesso = Math.floor(Date.now() / 1000);
-  for (let t = adesso - 3600; t <= adesso; t += 5) {
-    const picco = t > adesso - 1500 && t < adesso - 1100 ? 70 : 0;
-    storico.recente.push([t, Math.round((onda(t, 8, 14) + picco) * 10) / 10, Math.round((onda(t, 44, 6) + picco / 6) * 10) / 10]);
+  const now = Math.floor(Date.now() / 1000);
+  for (let t = now - 3600; t <= now; t += 5) {
+    const peak = t > now - 1500 && t < now - 1100 ? 70 : 0;
+    history.recent.push([t, Math.round((wave(t, 8, 14) + peak) * 10) / 10, Math.round((wave(t, 44, 6) + peak / 6) * 10) / 10]);
   }
-  for (let t = adesso - 86400; t <= adesso; t += 60) {
-    const picco = (t > adesso - 30000 && t < adesso - 28800) || (t > adesso - 1500 && t < adesso - 1100) ? 70 : 0;
-    storico.giorno.push([t, Math.round((onda(t, 8, 12) + picco) * 10) / 10, Math.round((onda(t, 43, 7) + picco / 6) * 10) / 10, 28, 0.4]);
+  for (let t = now - 86400; t <= now; t += 60) {
+    const peak = (t > now - 30000 && t < now - 28800) || (t > now - 1500 && t < now - 1100) ? 70 : 0;
+    history.day.push([t, Math.round((wave(t, 8, 12) + peak) * 10) / 10, Math.round((wave(t, 43, 7) + peak / 6) * 10) / 10, 28, 0.4]);
   }
 }
 
-function sistema() {
+function system() {
   const t = Date.now() / 1000;
-  const cpu = Math.max(1, onda(t, 8, 14));
+  const cpu = Math.max(1, wave(t, 8, 14));
   return {
-    ora: Math.round(t), nome: "raspberry", modello: "Raspberry Pi 3 Model B Rev 1.2", ip: "192.168.1.10",
-    cpu: { uso: Math.round(cpu * 10) / 10, core: [cpu * 1.3, cpu * 0.7, cpu * 1.1, cpu * 0.9].map((v) => Math.round(v * 10) / 10),
-      carico: [0.42, 0.31, 0.2], mhz: 1200, n: 4 },
-    temp: Math.round(onda(t, 44, 6) * 10) / 10,
-    mem: { totale: 948879360, usata: 262144000 + Math.round(Math.sin(t / 60) * 6e6), swap_totale: 947908608, swap_usata: 1572864 },
-    disco: { totale: 125229338624, usato: 47244640256, pieno: 38.6, attivita: Math.random() > 0.5 ? 40960 : 0,
-      contenuti: { wikipedia: 31e9, mappe: 4.7e9, indirizzi: 1.1e9 } },
-    rete: { interfaccia: "eth0", giu: Math.round(1.2e6 + Math.sin(t / 9) * 4e5), su: Math.round(3e5 + Math.cos(t / 7) * 1e5), collegata: true, mbit: 100 },
-    alimentazione: { sottotensione: false, rallentato: false, sottotensione_passata: false, rallentato_passato: false },
-    acceso_da: 166738 + Math.round((Date.now() - avvio) / 1000),
-    processi: [{ nome: "pihole-FTL", cpu: 3.1 }, { nome: "kiwix-serve", cpu: 1.4 }, { nome: "caddy", cpu: 0.6 }, { nome: "unbound", cpu: 0.3 }, { nome: "python3", cpu: 0.1 }],
-    avvisi: process.env.MOCK_AVVISI ? process.env.MOCK_AVVISI.split(",") : [],
+    time: Math.round(t), hostname: "raspberry", model: "Raspberry Pi 3 Model B Rev 1.2", ip: "192.168.1.10",
+    cpu: { usage: Math.round(cpu * 10) / 10, cores: [cpu * 1.3, cpu * 0.7, cpu * 1.1, cpu * 0.9].map((v) => Math.round(v * 10) / 10),
+      load: [0.42, 0.31, 0.2], mhz: 1200, count: 4 },
+    temp: Math.round(wave(t, 44, 6) * 10) / 10,
+    mem: { total: 948879360, used: 262144000 + Math.round(Math.sin(t / 60) * 6e6), swap_total: 947908608, swap_used: 1572864 },
+    disk: { total: 125229338624, used: 47244640256, percent_full: 38.6, io_rate: Math.random() > 0.5 ? 40960 : 0,
+      content: { wikipedia: 31e9, maps: 4.7e9, addresses: 1.1e9 } },
+    net: { interface: "eth0", rx: Math.round(1.2e6 + Math.sin(t / 9) * 4e5), tx: Math.round(3e5 + Math.cos(t / 7) * 1e5), link_up: true, mbit: 100 },
+    power: { undervoltage: false, throttled: false, undervoltage_past: false, throttled_past: false },
+    uptime: 166738 + Math.round((Date.now() - started) / 1000),
+    processes: [{ name: "pihole-FTL", cpu: 3.1 }, { name: "kiwix-serve", cpu: 1.4 }, { name: "caddy", cpu: 0.6 }, { name: "unbound", cpu: 0.3 }, { name: "python3", cpu: 0.1 }],
+    alerts: process.env.MOCK_ALERTS ? process.env.MOCK_ALERTS.split(",") : [],
   };
 }
 
-function stati() {
-  const esito = {};
-  for (const s of servizi) {
-    if (s.tipo === "pihole") esito[s.id] = { stato: bloccoAttivo ? "acceso" : "pausa", dettaglio: bloccoAttivo ? "Blocco attivo" : "Blocco in pausa", interruttore: true };
-    else if (s.tipo === "unita") esito[s.id] = spenti.has(s.id) ? { stato: "spento", dettaglio: "Spento dall'hub", interruttore: true } : { stato: "acceso", dettaglio: "", interruttore: true };
-    else if (s.id === "u-nas") esito[s.id] = { stato: "irraggiungibile", dettaglio: "Non risponde da 192.168.1.20", interruttore: false };
-    else esito[s.id] = { stato: "acceso", dettaglio: "", interruttore: false };
+function states() {
+  const result = {};
+  for (const s of services) {
+    if (s.type === "pihole") result[s.id] = { state: blocking ? "on" : "paused", detail: "", switch: true };
+    else if (s.type === "unit") result[s.id] = off.has(s.id) ? { state: "off", detail: "", switch: true } : { state: "on", detail: "", switch: true };
+    else if (s.id === "u-nas") result[s.id] = { state: "unreachable", detail: "no_response", host: "192.168.1.20", switch: false };
+    else result[s.id] = { state: "on", detail: "", switch: false };
   }
   const t = Date.now() / 1000;
-  const visite = { pihole: Math.round(280 + 120 * Math.sin(t / 40)), wikipedia: 35, mappe: Math.round(60 + 60 * Math.sin(t / 25)), netmon: 2 };
-  for (const [id, valore] of Object.entries(visite)) if (esito[id]) esito[id].attivita = valore;
-  return esito;
+  const visits = { pihole: Math.round(280 + 120 * Math.sin(t / 40)), wikipedia: 35, maps: Math.round(60 + 60 * Math.sin(t / 25)), netmon: 2 };
+  for (const [id, value] of Object.entries(visits)) if (result[id]) result[id].activity = value;
+  return result;
 }
 
 function dns() {
   return {
-    al_minuto: Math.round(280 + 120 * Math.sin(Date.now() / 40000)), totale: 27844, bloccate: 13559,
-    percentuale_bloccate: 48.7, dalla_cache: 9667, inoltrate: 2347, client: 9, domini_bloccati: 756319,
-    a_monte: { nome: "Quad9", cifrato: true },
+    per_minute: Math.round(280 + 120 * Math.sin(Date.now() / 40000)), total: 27844, blocked: 13559,
+    percent_blocked: 48.7, cached: 9667, forwarded: 2347, clients: 9, blocked_domains: 756319,
+    upstream: { name: "Quad9", encrypted: true },
   };
 }
 
-const LUOGHI = [
-  { tipo: "luogo", nome: "Milano", dettaglio: "Città, Milano, Lombardia", lat: 45.4642, lon: 9.19, riquadro: [9.04, 45.386, 9.278, 45.536] },
-  { tipo: "via", nome: "Via Giuseppe Garibaldi", dettaglio: "20121 Milano", lat: 45.4762, lon: 9.1854, riquadro: [9.184, 45.472, 9.187, 45.481] },
-  { tipo: "civico", nome: "Via Giuseppe Garibaldi 12", dettaglio: "20121 Milano", lat: 45.4738, lon: 9.1851, riquadro: null, civico_esatto: true },
-  { tipo: "luogo", nome: "Roma", dettaglio: "Città, Roma, Lazio", lat: 41.8933, lon: 12.4829, riquadro: [12.234, 41.655, 12.856, 42.141] },
-  { tipo: "via", nome: "Via Toledo", dettaglio: "80132 Napoli", lat: 40.839, lon: 14.2484, riquadro: [14.247, 40.835, 14.25, 40.846] },
-  { tipo: "via", nome: "Via Roma", dettaglio: "10121 Torino", lat: 45.0667, lon: 7.682, riquadro: [7.68, 45.062, 7.685, 45.071], civico_mancante: undefined },
+const PLACES = [
+  { type: "place", name: "Milano", detail: "Milano, Lombardia", class: "city", lat: 45.4642, lon: 9.19, bbox: [9.04, 45.386, 9.278, 45.536] },
+  { type: "street", name: "Via Giuseppe Garibaldi", detail: "20121 Milano", lat: 45.4762, lon: 9.1854, bbox: [9.184, 45.472, 9.187, 45.481] },
+  { type: "house_number", name: "Via Giuseppe Garibaldi 12", detail: "20121 Milano", lat: 45.4738, lon: 9.1851, bbox: null, exact_number: true },
+  { type: "place", name: "Roma", detail: "Roma, Lazio", class: "city", lat: 41.8933, lon: 12.4829, bbox: [12.234, 41.655, 12.856, 42.141] },
+  { type: "street", name: "Via Toledo", detail: "80132 Napoli", lat: 40.839, lon: 14.2484, bbox: [14.247, 40.835, 14.25, 40.846] },
+  { type: "street", name: "Via Roma", detail: "10121 Torino", lat: 45.0667, lon: 7.682, bbox: [7.68, 45.062, 7.685, 45.071] },
 ];
 
-function json(res, codice, corpo, extra = {}) {
-  const dati = Buffer.from(JSON.stringify(corpo));
-  res.writeHead(codice, { "Content-Type": "application/json; charset=utf-8", "Content-Length": dati.length, "Cache-Control": "no-store", ...extra });
-  res.end(dati);
+function json(res, status, body, extra = {}) {
+  const data = Buffer.from(JSON.stringify(body));
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Content-Length": data.length, "Cache-Control": "no-store", ...extra });
+  res.end(data);
 }
-function corpo(req) {
-  return new Promise((ok) => {
-    const pezzi = [];
-    req.on("data", (p) => pezzi.push(p));
+function readBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
-      try { ok(JSON.parse(Buffer.concat(pezzi).toString() || "{}")); } catch { ok({}); }
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString() || "{}")); } catch { resolve({}); }
     });
   });
 }
-function sessione(req) {
-  const gettone = /hub_sessione=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
-  return gettone && sessioni.has(gettone) ? gettone : null;
+function session(req) {
+  const token = /hub_session=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
+  return token && sessions.has(token) ? token : null;
 }
-function file(res, percorso, codice = 200, req) {
-  const stat = statSync(percorso);
-  const tipo = TIPI[extname(percorso)] ?? "application/octet-stream";
-  const intervallo = /bytes=(\d+)-(\d*)/.exec(req?.headers.range ?? "");
-  if (intervallo) {
-    const inizio = Number(intervallo[1]);
-    const fine = intervallo[2] ? Math.min(Number(intervallo[2]), stat.size - 1) : stat.size - 1;
-    res.writeHead(206, { "Content-Type": tipo, "Content-Range": `bytes ${inizio}-${fine}/${stat.size}`, "Content-Length": fine - inizio + 1, "Accept-Ranges": "bytes", ETag: `"${stat.mtimeMs}-${stat.size}"` });
-    return createReadStream(percorso, { start: inizio, end: fine }).pipe(res);
+function file(res, path, status = 200, req) {
+  const stat = statSync(path);
+  const type = TYPES[extname(path)] ?? "application/octet-stream";
+  const range = /bytes=(\d+)-(\d*)/.exec(req?.headers.range ?? "");
+  if (range) {
+    const start = Number(range[1]);
+    const end = range[2] ? Math.min(Number(range[2]), stat.size - 1) : stat.size - 1;
+    res.writeHead(206, { "Content-Type": type, "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Content-Length": end - start + 1, "Accept-Ranges": "bytes", ETag: `"${stat.mtimeMs}-${stat.size}"` });
+    return createReadStream(path, { start, end }).pipe(res);
   }
-  res.writeHead(codice, { "Content-Type": tipo, "Content-Length": stat.size, "Accept-Ranges": "bytes" });
-  createReadStream(percorso).pipe(res);
+  res.writeHead(status, { "Content-Type": type, "Content-Length": stat.size, "Accept-Ranges": "bytes" });
+  createReadStream(path).pipe(res);
 }
 
 createServer(async (req, res) => {
@@ -179,103 +181,103 @@ createServer(async (req, res) => {
   }
   if (req.method === "OPTIONS") return res.writeHead(204).end();
 
-  if (p === "/servizi.json") return json(res, 200, { servizi });
+  if (p === "/services.json") return json(res, 200, { services });
   if (p === "/status.json") {
     return json(res, 200, {
-      aggiornato: new Date().toISOString(),
-      wikipedia: { edizione: "2026-08", byte: 31e9, esito: "ok", in_corso: false },
-      mappe: { build: "20261116", byte: 4.7e9, esito: "ok", in_corso: false },
-      indirizzi: { dati: "2026-11-08", byte: 1.1e9, esito: "ok", in_corso: false },
+      updated: new Date().toISOString(),
+      wikipedia: { edition: "2026-08", bytes: 31e9, result: "ok", running: false },
+      maps: { build: "20261116", bytes: 4.7e9, result: "ok", running: false },
+      addresses: { date: "2026-11-08", bytes: 1.1e9, result: "ok", running: false },
     });
   }
-  if (p === "/controllo/stato") return json(res, 200, { ora: Math.round(Date.now() / 1000), autenticato: Boolean(sessione(req)), utente: sessione(req) ? "admin" : null, configurato: process.env.MOCK_SENZA_PASSWORD !== "1", servizi: stati(), dns: dns() });
-  if (p === "/controllo/sistema") return json(res, 200, sistema());
-  if (p === "/controllo/sistema/storico") return json(res, 200, { recente: { passo: 5, punti: storico.recente }, giorno: { passo: 60, punti: storico.giorno } });
+  if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", services: states(), dns: dns() });
+  if (p === "/control/system") return json(res, 200, system());
+  if (p === "/control/system/history") return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day } });
 
-  if (process.env.MOCK_CERCA && (p === "/cerca" || p.startsWith("/cerca/"))) {
-    const destinazione = new URL(req.url, process.env.MOCK_CERCA);
-    const inoltro = richiestaHttp(destinazione, (risposta) => {
-      res.writeHead(risposta.statusCode ?? 502, { "Content-Type": risposta.headers["content-type"] ?? "application/json" });
-      risposta.pipe(res);
+  if (process.env.MOCK_SEARCH && (p === "/search" || p.startsWith("/search/"))) {
+    const target = new URL(req.url, process.env.MOCK_SEARCH);
+    const forward = httpRequest(target, (response) => {
+      res.writeHead(response.statusCode ?? 502, { "Content-Type": response.headers["content-type"] ?? "application/json" });
+      response.pipe(res);
     });
-    inoltro.on("error", () => json(res, 502, { errore: "ricerca_spenta" }));
-    return inoltro.end();
+    forward.on("error", () => json(res, 502, { error: "search_off" }));
+    return forward.end();
   }
-  if (PI && (p.startsWith("/tiles/") || p === "/cerca" || p.startsWith("/cerca/") || p === "/wiki" || p.startsWith("/wiki/"))) {
-    return alRaspberry(req, res);
+  if (PI && (p.startsWith("/tiles/") || p === "/search" || p.startsWith("/search/") || p === "/wiki" || p.startsWith("/wiki/"))) {
+    return toRaspberry(req, res);
   }
   if (p === "/wiki" || p.startsWith("/wiki/")) {
-    if (spenti.has("wikipedia")) return res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" }).end("Wikipedia spenta dall'hub");
-    if (wikipediaFinta(req, res, url)) return;
+    if (off.has("wikipedia")) return res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" }).end("Wikipedia switched off from the hub");
+    if (fakeWikipedia(req, res, url)) return;
   }
-  if (p === "/cerca") {
+  if (p === "/search") {
     const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
-    const parole = q.split(/\s+/).filter(Boolean);
-    const risultati = LUOGHI.filter((l) => parole.every((w) => `${l.nome} ${l.dettaglio}`.toLowerCase().includes(w)));
-    return json(res, 200, { q, risultati, ms: 3 });
+    const words = q.split(/\s+/).filter(Boolean);
+    const results = PLACES.filter((l) => words.every((w) => `${l.name} ${l.detail}`.toLowerCase().includes(w)));
+    return json(res, 200, { q, results, ms: 3 });
   }
 
-  if (p.startsWith("/controllo/") && (req.method === "POST" || req.method === "DELETE")) {
-    if (req.headers["x-hub"] !== "1") return json(res, 403, { errore: "richiesta_esterna", messaggio: "Richiesta non accettata." });
-    const dati = await corpo(req);
-    if (p === "/controllo/accesso") {
-      if (dati.utente === "admin" && dati.password === password) {
-        errori = 0;
-        const gettone = randomBytes(16).toString("hex");
-        sessioni.add(gettone);
-        return json(res, 200, { ok: true, utente: "admin" }, { "Set-Cookie": `hub_sessione=${gettone}; Path=/controllo; Max-Age=34560000; HttpOnly; SameSite=Strict` });
+  if (p.startsWith("/control/") && (req.method === "POST" || req.method === "DELETE")) {
+    if (req.headers["x-hub"] !== "1") return json(res, 403, { error: "foreign_request", message: "Request not accepted." });
+    const data = await readBody(req);
+    if (p === "/control/login") {
+      if (data.username === "admin" && data.password === password) {
+        failures = 0;
+        const token = randomBytes(16).toString("hex");
+        sessions.add(token);
+        return json(res, 200, { ok: true, user: "admin" }, { "Set-Cookie": `hub_session=${token}; Path=/control; Max-Age=34560000; HttpOnly; SameSite=Strict` });
       }
-      errori++;
-      if (errori >= 5) { errori = 0; return json(res, 429, { errore: "bloccato", messaggio: "Troppi tentativi. Riprova più tardi.", secondi: 300 }); }
-      return json(res, 401, { errore: "credenziali", messaggio: "Utente o password non corretti.", tentativi_rimasti: 5 - errori });
+      failures++;
+      if (failures >= 5) { failures = 0; return json(res, 429, { error: "locked", message: "Too many attempts. Try again later.", seconds: 300 }); }
+      return json(res, 401, { error: "bad_credentials", message: "Wrong username or password.", attempts_left: 5 - failures });
     }
-    if (p === "/controllo/uscita") { sessioni.delete(sessione(req)); return json(res, 200, { ok: true }); }
-    if (!sessione(req)) return json(res, 401, { errore: "accesso_richiesto", messaggio: "Accedi per continuare." });
-    if (p === "/controllo/password") {
-      if (dati.attuale !== password) return json(res, 403, { errore: "password_attuale", messaggio: "La password attuale non è corretta." });
-      if (String(dati.nuova ?? "").length < 8) return json(res, 400, { errore: "password_corta", messaggio: "La nuova password deve avere almeno 8 caratteri." });
-      password = dati.nuova;
+    if (p === "/control/logout") { sessions.delete(session(req)); return json(res, 200, { ok: true }); }
+    if (!session(req)) return json(res, 401, { error: "login_required", message: "Log in to continue." });
+    if (p === "/control/password") {
+      if (data.current !== password) return json(res, 403, { error: "wrong_password", message: "The current password is not correct." });
+      if (String(data.new ?? "").length < 8) return json(res, 400, { error: "password_too_short", message: "The new password must be at least 8 characters long." });
+      password = data.new;
       return json(res, 200, { ok: true });
     }
-    const interruttore = /^\/controllo\/servizi\/([a-z0-9-]+)\/interruttore$/.exec(p);
-    if (interruttore) {
-      await new Promise((ok) => setTimeout(ok, 500));
-      if (interruttore[1] === "pihole") bloccoAttivo = Boolean(dati.acceso);
-      else if (dati.acceso) spenti.delete(interruttore[1]);
-      else spenti.add(interruttore[1]);
-      return json(res, 200, { ok: true, servizi: stati() });
+    const toggle = /^\/control\/services\/([a-z0-9-]+)\/switch$/.exec(p);
+    if (toggle) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (toggle[1] === "pihole") blocking = Boolean(data.on);
+      else if (data.on) off.delete(toggle[1]);
+      else off.add(toggle[1]);
+      return json(res, 200, { ok: true, services: states() });
     }
-    const uno = /^\/controllo\/servizi(?:\/([a-z0-9-]+))?$/.exec(p);
-    if (uno && req.method === "DELETE") { servizi = servizi.filter((s) => s.id !== uno[1]); return json(res, 200, { ok: true }); }
-    if (uno) {
-      if (!dati.nome) return json(res, 400, { errore: "campo", messaggio: "Scrivi un nome di al massimo 40 caratteri." });
-      const esistente = servizi.find((s) => s.id === uno[1]);
-      const servizio = { ...(esistente ?? { id: `u-${randomBytes(4).toString("hex")}` }), nome: dati.nome, descrizione: dati.descrizione ?? "", url: dati.url, tipo: "link", aggiunto: true };
-      if (dati.icona?.dati) { const nome = `${randomBytes(8).toString("hex")}.png`; icone.set(nome, Buffer.from(dati.icona.dati, "base64")); servizio.icona = `/icone/${nome}`; }
-      servizi = esistente ? servizi.map((s) => (s.id === servizio.id ? servizio : s)) : [...servizi, servizio];
-      return json(res, 200, { ok: true, servizio });
+    const one = /^\/control\/services(?:\/([a-z0-9-]+))?$/.exec(p);
+    if (one && req.method === "DELETE") { services = services.filter((s) => s.id !== one[1]); return json(res, 200, { ok: true }); }
+    if (one) {
+      if (!data.name) return json(res, 400, { error: "invalid_name", message: "Enter a name of at most 40 characters." });
+      const existing = services.find((s) => s.id === one[1]);
+      const service = { ...(existing ?? { id: `u-${randomBytes(4).toString("hex")}` }), name: data.name, description: data.description ?? "", url: data.url, type: "link", added: true };
+      if (data.icon?.data) { const name = `${randomBytes(8).toString("hex")}.png`; icons.set(name, Buffer.from(data.icon.data, "base64")); service.icon = `/icons/${name}`; }
+      services = existing ? services.map((s) => (s.id === service.id ? service : s)) : [...services, service];
+      return json(res, 200, { ok: true, service });
     }
-    return json(res, 404, { errore: "non_trovato", messaggio: "Pagina non trovata." });
+    return json(res, 404, { error: "not_found", message: "Page not found." });
   }
 
-  if (p.startsWith("/icone/")) {
-    const nome = p.slice(7);
-    if (icone.has(nome)) return res.writeHead(200, { "Content-Type": "image/png" }).end(icone.get(nome));
-    const percorso = join(ICONE, normalize(nome).replace(/^(\.\.[/\\])+/, ""));
-    if (existsSync(percorso)) return file(res, percorso, 200, req);
+  if (p.startsWith("/icons/")) {
+    const name = p.slice(7);
+    if (icons.has(name)) return res.writeHead(200, { "Content-Type": "image/png" }).end(icons.get(name));
+    const path = join(ICONS, normalize(name).replace(/^(\.\.[/\\])+/, ""));
+    if (existsSync(path)) return file(res, path, 200, req);
     return res.writeHead(404).end();
   }
-  if (p === "/tiles/italia.pmtiles") {
-    if (spenti.has("mappe")) return res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" }).end("Mappe spente dall'hub");
+  if (p === "/tiles/basemap.pmtiles") {
+    if (off.has("maps")) return res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" }).end("Maps switched off from the hub");
     if (TILES && existsSync(TILES)) return file(res, TILES, 200, req);
     return res.writeHead(404).end();
   }
 
-  // il sito compilato, come lo serve Caddy
-  const relativo = normalize(p).replace(/^(\.\.[/\\])+/, "");
-  for (const candidato of [join(SITO, relativo), join(SITO, relativo, "index.html"), join(SITO, `${relativo}.html`)]) {
-    if (existsSync(candidato) && statSync(candidato).isFile()) return file(res, candidato, 200, req);
+  // the built site, as Caddy serves it
+  const relative = normalize(p).replace(/^(\.\.[/\\])+/, "");
+  for (const candidate of [join(SITE, relative), join(SITE, relative, "index.html"), join(SITE, `${relative}.html`)]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return file(res, candidate, 200, req);
   }
-  if (existsSync(join(SITO, "404.html"))) return file(res, join(SITO, "404.html"), 404, req);
-  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("Sito non compilato: lancia prima npm run build");
-}).listen(PORTA, () => console.log(`Finto Raspberry su http://localhost:${PORTA} (accesso di prova: admin / prova1234)`));
+  if (existsSync(join(SITE, "404.html"))) return file(res, join(SITE, "404.html"), 404, req);
+  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("Site not built: run npm run build first");
+}).listen(PORT, () => console.log(`Mock Raspberry Pi on http://localhost:${PORT} (test login: admin / test1234)`));

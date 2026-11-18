@@ -8,14 +8,14 @@ import "@fontsource/ibm-plex-sans/latin-ext-500.css";
 import "@fontsource/ibm-plex-mono/latin-400.css";
 import "@fontsource/ibm-plex-mono/latin-500.css";
 import "./globals.css";
-import { FornitoreHub } from "@/lib/hub";
-import { Accesso } from "@/components/Accesso";
-import { AvvisoInBasso } from "@/components/AvvisoInBasso";
+import { HubProvider } from "@/lib/hub";
+import { I18nProvider, LANGUAGE_SCRIPT } from "@/lib/i18n";
+import { LoginDialog } from "@/components/LoginDialog";
+import { Toast } from "@/components/Toast";
 
 export const metadata: Metadata = {
-  title: { default: "raspberry", template: "%s, raspberry" },
-  description: "L'hub di casa: Pi-hole, Wikipedia offline, mappe e stato del Raspberry.",
-  icons: { icon: "/icona.svg" },
+  description: "The home hub: Pi-hole, offline Wikipedia, maps and the state of the Raspberry Pi.",
+  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = {
@@ -27,22 +27,28 @@ export const viewport: Viewport = {
   ],
 };
 
-// Prima che la pagina compaia: applica il tema scelto su questo dispositivo (se c'è), così non
-// lampeggia quello sbagliato. Senza scelta salvata vale il tema del browser.
-const TEMA_SUBITO = `try{var t=localStorage.getItem("tema");if(t==="chiaro"||t==="scuro")document.documentElement.dataset.tema=t}catch(e){}`;
+// Before the page appears: applies the theme chosen on this device (if any), so the wrong one does not
+// flash. Without a saved choice the browser theme applies. ("tema" is the key used by version 1.x.)
+const THEME_SCRIPT = `try{var d=document.documentElement,t=localStorage.getItem("theme");
+if(t===null){var o=localStorage.getItem("tema");if(o!==null){t=o==="chiaro"?"light":o==="scuro"?"dark":null;
+localStorage.removeItem("tema");if(t)localStorage.setItem("theme",t)}}
+if(t==="light"||t==="dark")d.dataset.theme=t}catch(e){}`;
 
-export default function Impianto({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="it" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: TEMA_SUBITO }} />
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: LANGUAGE_SCRIPT }} />
       </head>
       <body>
-        <FornitoreHub>
-          {children}
-          <Accesso />
-          <AvvisoInBasso />
-        </FornitoreHub>
+        <I18nProvider>
+          <HubProvider>
+            {children}
+            <LoginDialog />
+            <Toast />
+          </HubProvider>
+        </I18nProvider>
       </body>
     </html>
   );
