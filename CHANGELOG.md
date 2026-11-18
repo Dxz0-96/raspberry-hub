@@ -48,6 +48,13 @@ The whole project is now in English, and the interface speaks English and Italia
   `/control`).
 - `hub-control.py` returns machine-readable error and status codes; the hub translates them.
 - The board drawing keeps its English labels in both languages, like a real silkscreen.
+- The map needs a browser with WebGL 2 (MapLibre GL JS 6). Browsers without it now get a message
+  instead of a map that never opens.
+
+### Security
+
+- MapLibre GL JS upgraded from 5.24 to 6.19, which fixes an XSS sanitizer bypass in map attributions
+  ([GHSA-jrc7-96c5-q579](https://github.com/advisories/GHSA-jrc7-96c5-q579)).
 
 ## [1.0.0] - 2026-11-18
 

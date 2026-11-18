@@ -56,7 +56,7 @@ function toRaspberry(req, res) {
   forward.end();
 }
 const TYPES = {
-  ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
+  ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2",
   ".woff": "font/woff", ".pbf": "application/x-protobuf", ".txt": "text/plain; charset=utf-8", ".ico": "image/x-icon",
 };

@@ -273,6 +273,8 @@ export const en = {
     missingBody: "The Raspberry Pi downloads them by itself: the hub shows when they are ready.",
     unreachableTitle: "The Raspberry Pi is not responding",
     unreachableBody: "Check that you are connected to the home network and reload the page.",
+    unsupportedTitle: "This browser cannot draw the map",
+    unsupportedBody: "The map needs WebGL 2: update the browser, turn on hardware acceleration or use another device.",
     zoomIn: "Zoom in",
     zoomOut: "Zoom out",
     toggleAttribution: "Show or hide the sources",
