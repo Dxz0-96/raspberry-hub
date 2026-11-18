@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
@@ -17,7 +17,15 @@ import type { SearchResult } from "@/lib/types";
 const START: [number, number] = [12.6, 42.4];
 const BOUNDS: [[number, number], [number, number]] = [[3.5, 33.5], [21.5, 49.0]];
 
-let protocolReady = false;
+let prepared = false;
+
+/** Once per page: where the MapLibre worker is (the build emits it as a file of the site) and the pmtiles:// protocol. */
+function prepare() {
+  if (prepared) return;
+  maplibregl.setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
+  maplibregl.addProtocol("pmtiles", new Protocol().tile);
+  prepared = true;
+}
 
 function tilesUrl(): string {
   const chosen = process.env.NEXT_PUBLIC_TILES_URL;
@@ -54,7 +62,7 @@ function describe(r: SearchResult, t: Messages): { name: string; detail: string 
   return { name: r.name, detail: detail || t.maps.types[r.type] };
 }
 
-type Availability = "checking" | "ready" | "off" | "missing" | "unreachable";
+type Availability = "checking" | "ready" | "off" | "missing" | "unreachable" | "unsupported";
 
 function AddressSearch({ map, onResult }: { map: maplibregl.Map | null; onResult: (r: SearchResult) => void }) {
   const { t } = useI18n();
@@ -228,45 +236,48 @@ export default function MapView() {
         return;
       }
       if (!container.current) return;
-      if (!protocolReady) {
-        maplibregl.addProtocol("pmtiles", new Protocol().tile);
-        protocolReady = true;
-      }
+      prepare();
       upgradeLegacyHash();
       const { dark: startDark, locale: startLocale, t: texts } = initial.current;
-      created = new maplibregl.Map({
-        container: container.current,
-        style: mapStyle(startDark, startLocale),
-        center: START,
-        zoom: 5.2,
-        minZoom: 4,
-        maxZoom: 19,
-        maxBounds: BOUNDS,
-        // the position stays in the address (#position=zoom/lat/lon): reloading the page keeps it
-        hash: "position",
-        attributionControl: { compact: true },
-        dragRotate: false,
-        pitchWithRotate: false,
-        locale: {
-          "NavigationControl.ZoomIn": texts.maps.zoomIn,
-          "NavigationControl.ZoomOut": texts.maps.zoomOut,
-          "AttributionControl.ToggleAttribution": texts.maps.toggleAttribution,
-          "ScaleControl.Meters": "m",
-          "ScaleControl.Kilometers": "km",
-        },
-      });
+      let view: maplibregl.Map;
+      try {
+        view = new maplibregl.Map({
+          container: container.current,
+          style: mapStyle(startDark, startLocale),
+          center: START,
+          zoom: 5.2,
+          minZoom: 4,
+          maxZoom: 19,
+          maxBounds: BOUNDS,
+          // the position stays in the address (#position=zoom/lat/lon): reloading the page keeps it
+          hash: "position",
+          attributionControl: { compact: true },
+          dragRotate: false,
+          pitchWithRotate: false,
+          locale: {
+            "NavigationControl.ZoomIn": texts.maps.zoomIn,
+            "NavigationControl.ZoomOut": texts.maps.zoomOut,
+            "AttributionControl.ToggleAttribution": texts.maps.toggleAttribution,
+            "ScaleControl.Meters": "m",
+            "ScaleControl.Kilometers": "km",
+          },
+        });
+      } catch (problem) {
+        // MapLibre draws with WebGL 2: without it (old browser, graphics switched off) say so instead of waiting forever
+        if (problem instanceof maplibregl.GPUInitializationError) return setAvailability("unsupported");
+        throw problem;
+      }
+      created = view;
       drawnWith.current = `${startDark}-${startLocale}`;
       // a few icons named by the style are not in the offline set: an empty image instead, without warnings
-      created.on("styleimagemissing", (event) => {
-        if (created && !created.hasImage(event.id)) {
-          created.addImage(event.id, { width: 1, height: 1, data: new Uint8Array(4) });
-        }
+      view.setMissingStyleImageResolver((id) => {
+        if (!view.hasImage(id)) view.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
       });
-      created.touchZoomRotate.disableRotation();
-      created.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-      created.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+      view.touchZoomRotate.disableRotation();
+      view.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+      view.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
       setAvailability("ready");
-      setMap(created);
+      setMap(view);
     })();
     return () => {
       cancelled = true;
@@ -331,6 +342,12 @@ export default function MapView() {
             <>
               <h1>{t.maps.unreachableTitle}</h1>
               <p>{t.maps.unreachableBody}</p>
+            </>
+          )}
+          {availability === "unsupported" && (
+            <>
+              <h1>{t.maps.unsupportedTitle}</h1>
+              <p>{t.maps.unsupportedBody}</p>
             </>
           )}
           {availability !== "checking" && (
