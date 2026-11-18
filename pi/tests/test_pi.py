@@ -6,6 +6,8 @@ They build a small address index from a made-up Photon dump, search it, convert 
 layout, upgrade a fake 1.x installation with hub-migrate.py and talk to hub-control.py over HTTP.
 The hub-control test needs Linux (/proc); the others run anywhere.
 """
+import base64
+import hashlib
 import http.client
 import importlib.util
 import json
@@ -253,11 +255,10 @@ class HubControl(unittest.TestCase):
         os.makedirs(os.path.join(hub, "config"))
         os.makedirs(os.path.join(hub, "icons"))
         shutil.copy(os.path.join(PI, "services.json"), os.path.join(hub, "config", "services.json"))
+        # the same format hub-control-setpass writes
         credentials = os.path.join(cls.folder, "credentials.json")
-        setpass = load("setpass", "hub-control-setpass")
-        import base64
         salt = b"0123456789abcdef"
-        derived = setpass.hashlib.scrypt(b"test1234", salt=salt, n=16384, r=8, p=1, dklen=32, maxmem=64 * 1024 * 1024)
+        derived = hashlib.scrypt(b"test1234", salt=salt, n=16384, r=8, p=1, dklen=32, maxmem=64 * 1024 * 1024)
         with open(credentials, "w", encoding="utf-8") as f:
             json.dump({"username": "admin", "salt": base64.b64encode(salt).decode(),
                        "hash": base64.b64encode(derived).decode(), "n": 16384, "r": 8, "p": 1}, f)
