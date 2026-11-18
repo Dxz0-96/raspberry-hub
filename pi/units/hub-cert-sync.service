@@ -1,0 +1,6 @@
+[Unit]
+Description=raspberry-hub: hands the home HTTPS certificate to Caddy and reloads it
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hub-cert-sync

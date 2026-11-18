@@ -1,7 +1,7 @@
 [Unit]
-Description=Hub di casa: Wikipedia offline (kiwix-serve)
+Description=raspberry-hub: offline Wikipedia (kiwix-serve)
 After=network.target
-# Spento dall'hub: resta spento anche dopo un riavvio, finche' non lo si riaccende.
+# Switched off from the hub: stays off after a reboot too, until it is switched back on.
 ConditionPathExists=!/var/lib/hub-control/wikipedia.off
 ConditionPathExists=/srv/hub/zim/wikipedia_it.zim
 

@@ -1,35 +1,35 @@
 #!/bin/bash
-# Installa l'hub di casa sul Raspberry: Caddy, Wikipedia offline, mappe con ricerca degli indirizzi,
-# interruttori dei servizi e monitor dell'hardware. Va lanciato con sudo dalla cartella che contiene
-# questi file (di norma ~/pi-setup/hub). Si puo' rilanciare senza danni.
+# Installs raspberry-hub on the Raspberry Pi: Caddy, offline Wikipedia, maps with address search,
+# service switches and hardware monitor. Run it with sudo from the folder that holds these files
+# (normally ~/pi-setup/hub). Safe to run again; running it again is also how you upgrade.
 #
-#   sudo bash hub-install.sh prepara    pacchetti, utenti, cartelle, script e servizi locali
-#                                       (non tocca Pi-hole ne' le porte 80 e 443)
-#   sudo bash hub-install.sh sito       installa il sito dell'hub da sito.tar.gz
-#   sudo bash hub-install.sh attiva     certificato di casa, Caddy sulle porte 80/443,
-#                                       web di Pi-hole spostato su 127.0.0.1:8080
-#   sudo bash hub-install.sh mensile    aggiunge i contenuti dell'hub all'aggiornamento mensile e al backup
-#   sudo bash hub-install.sh disattiva  torna indietro: Pi-hole di nuovo su 80/443, Caddy fermo
-#   sudo bash hub-install.sh            prepara + sito + attiva + mensile
+#   sudo bash hub-install.sh prepare   packages, users, folders, scripts and local services
+#                                      (does not touch Pi-hole or ports 80 and 443)
+#   sudo bash hub-install.sh site      installs the hub website from site.tar.gz
+#   sudo bash hub-install.sh enable    home certificate, Caddy on ports 80/443,
+#                                      Pi-hole web interface moved to 127.0.0.1:8080
+#   sudo bash hub-install.sh monthly   adds the hub content to the monthly update and to the backup
+#   sudo bash hub-install.sh disable   rolls back: Pi-hole on 80/443 again, Caddy stopped
+#   sudo bash hub-install.sh           prepare + site + enable + monthly
 set -e
 export DEBIAN_FRONTEND=noninteractive
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-[ "$(id -u)" -eq 0 ] || { echo "Va lanciato con sudo." >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo "Run it with sudo." >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PISETUP="$(dirname "$HERE")"                      # il pacchetto pi-setup (install.sh, pihole-cert.sh, ...)
-WHAT="${1:-tutto}"
-# l'utente che possiede il sito (/srv/hub/site) e lo aggiorna con deploy.ps1: chi ha lanciato sudo
+PISETUP="$(dirname "$HERE")"                      # the pi-setup package (install.sh, pihole-cert.sh, ...)
+WHAT="${1:-all}"
+# the user who owns the website (/srv/hub/site) and updates it with deploy.ps1: whoever ran sudo
 ADMIN="${ADMIN_USER:-${SUDO_USER:-}}"
-[ -n "$ADMIN" ] && [ "$ADMIN" != root ] || { echo "Lancialo con sudo dal tuo utente, oppure indica ADMIN_USER=nome" >&2; exit 1; }
-# l'indirizzo del Raspberry nella rete di casa: il primo dell'interfaccia principale, se non indicato
+[ -n "$ADMIN" ] && [ "$ADMIN" != root ] || { echo "Run it with sudo from your own user, or set ADMIN_USER=name" >&2; exit 1; }
+# the address of the Raspberry Pi on the home network: the first one of the main interface, unless given
 PI="${PI_IP:-$(hostname -I | awk '{print $1}')}"
 LIB=/usr/local/lib/raspberry-hub
-PORTA_PIHOLE="127.0.0.1:8080"
-SPENTI_ALL_INIZIO="${SPENTI_ALL_INIZIO-wikipedia mappe}"   # servizi che partono spenti alla prima installazione
-PMTILES_VERSIONE=1.31.2
+PIHOLE_PORT="127.0.0.1:8080"
+OFF_AT_FIRST_INSTALL="${OFF_AT_FIRST_INSTALL-wikipedia maps}"   # services that start switched off on a new install
+PMTILES_VERSION=1.31.2
 PMTILES_SHA256=f8bd47e7ea866863489cad588fbaf2f31f42e5821f7a03f009b3769f05801cb1   # Linux arm64
 
-ftl_pronto() {     # aspetta che il web e il DNS di Pi-hole rispondano; $1 = host:porta del web
+ftl_ready() {      # waits until the Pi-hole web interface and DNS answer; $1 = host:port of the web interface
   local i code
   for i in $(seq 1 40); do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://$1/api/auth" 2>/dev/null || true)
@@ -41,9 +41,9 @@ ftl_pronto() {     # aspetta che il web e il DNS di Pi-hole rispondano; $1 = hos
   return 1
 }
 
-do_prepara() {
-  echo "== Pacchetti"
-  # Caddy non deve partire da solo durante l'installazione: le porte 80/443 sono ancora di Pi-hole.
+do_prepare() {
+  echo "== Packages"
+  # Caddy must not start by itself during the installation: ports 80/443 still belong to Pi-hole.
   printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d; chmod 755 /usr/sbin/policy-rc.d
   trap 'rm -f /usr/sbin/policy-rc.d' EXIT
   apt-get update -qq
@@ -52,157 +52,171 @@ do_prepara() {
   systemctl is-active --quiet caddy || systemctl disable caddy >/dev/null 2>&1 || true
   echo "   caddy $(caddy version | awk '{print $1}'), kiwix-serve $(kiwix-serve --version 2>&1 | awk 'NR==1 {print $2}')"
 
-  echo "== pmtiles (estrazione delle mappe)"
-  if [ "$(pmtiles version 2>/dev/null | awk 'NR==1 {print $NF}')" = "$PMTILES_VERSIONE" ] || pmtiles version 2>/dev/null | grep -q "$PMTILES_VERSIONE"; then
-    echo "   gia' installato ($PMTILES_VERSIONE)"
+  echo "== pmtiles (map extraction)"
+  if [ "$(pmtiles version 2>/dev/null | awk 'NR==1 {print $NF}')" = "$PMTILES_VERSION" ] || pmtiles version 2>/dev/null | grep -q "$PMTILES_VERSION"; then
+    echo "   already installed ($PMTILES_VERSION)"
   else
-    [ "$(dpkg --print-architecture)" = arm64 ] || { echo "   ERRORE: previsto solo per arm64" >&2; exit 1; }
+    [ "$(dpkg --print-architecture)" = arm64 ] || { echo "   ERROR: only arm64 is supported" >&2; exit 1; }
     tmp=$(mktemp -d)
     curl -fsSL --max-time 300 -o "$tmp/pmtiles.tar.gz" \
-      "https://github.com/protomaps/go-pmtiles/releases/download/v$PMTILES_VERSIONE/go-pmtiles_${PMTILES_VERSIONE}_Linux_arm64.tar.gz"
+      "https://github.com/protomaps/go-pmtiles/releases/download/v$PMTILES_VERSION/go-pmtiles_${PMTILES_VERSION}_Linux_arm64.tar.gz"
     echo "$PMTILES_SHA256  $tmp/pmtiles.tar.gz" | sha256sum -c --quiet - \
-      || { rm -rf "$tmp"; echo "   ERRORE: impronta del file diversa da quella attesa, non installo" >&2; exit 1; }
+      || { rm -rf "$tmp"; echo "   ERROR: the file checksum does not match the expected one, not installing" >&2; exit 1; }
     tar -xzf "$tmp/pmtiles.tar.gz" -C "$tmp" pmtiles
     install -o root -g root -m 755 "$tmp/pmtiles" /usr/local/bin/pmtiles
     rm -rf "$tmp"
-    echo "   installato in /usr/local/bin/pmtiles"
+    echo "   installed to /usr/local/bin/pmtiles"
   fi
 
-  echo "== Utente e cartelle"
+  echo "== Upgrade from earlier versions"
+  systemctl stop hub-control.service hub-search.service 2>/dev/null || true
+  python3 "$HERE/hub-migrate.py"
+
+  echo "== User and folders"
   id hubctl >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin hubctl
   for g in pihole video; do getent group "$g" >/dev/null && usermod -aG "$g" hubctl; done
-  install -d -o root -g root -m 755 /srv/hub /srv/hub/zim /srv/hub/maps /srv/hub/search /srv/hub/stato "$LIB"
+  install -d -o root -g root -m 755 /srv/hub /srv/hub/zim /srv/hub/maps /srv/hub/search /srv/hub/state "$LIB"
   install -d -o "$ADMIN" -g "$ADMIN" -m 755 /srv/hub/site
-  install -d -o hubctl -g hubctl -m 775 /srv/hub/config /srv/hub/icone
+  install -d -o hubctl -g hubctl -m 775 /srv/hub/config /srv/hub/icons
   install -d -o hubctl -g hubctl -m 755 /var/lib/hub-control
   install -d -o root -g hubctl -m 770 /etc/hub-control
-  # Stato iniziale: Wikipedia e mappe partono spente e si accendono dall'hub quando servono.
-  # Vale solo alla prima installazione: dopo, decide l'interruttore dell'hub (e la scelta resta ai riavvii).
-  if [ ! -e /var/lib/hub-control/.stato-iniziale ]; then
-    for s in $SPENTI_ALL_INIZIO; do
+  # Initial state: Wikipedia and maps start switched off and are turned on from the hub when needed.
+  # Only on the first installation: after that the hub switch decides (and the choice survives reboots).
+  if [ ! -e /var/lib/hub-control/.initial-state ]; then
+    for s in $OFF_AT_FIRST_INSTALL; do
       install -o hubctl -g hubctl -m 644 /dev/null "/var/lib/hub-control/$s.off"
     done
-    install -o hubctl -g hubctl -m 644 /dev/null /var/lib/hub-control/.stato-iniziale
-    echo "   stato iniziale: spenti ${SPENTI_ALL_INIZIO:-nessuno}"
+    install -o hubctl -g hubctl -m 644 /dev/null /var/lib/hub-control/.initial-state
+    echo "   initial state: switched off: ${OFF_AT_FIRST_INSTALL:-none}"
   fi
-  install -d -o root -g root -m 755 /etc/caddy/servizi
-  [ -e /etc/caddy/servizi/000-vuoto.caddy ] || echo "# I servizi agganciati con hub-servizio finiscono in questa cartella." > /etc/caddy/servizi/000-vuoto.caddy
+  install -d -o root -g root -m 755 /etc/caddy/services
+  [ -e /etc/caddy/services/000-empty.caddy ] || echo "# Services hooked in with hub-service end up in this folder." > /etc/caddy/services/000-empty.caddy
 
-  echo "== Script"
+  echo "== Scripts"
   for f in hub-search.py hub-control.py build-search-index.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
-  for f in hub-update.sh hub-control-setpass hub-servizio hub-cert-sync hub-verifica.sh; do
+  for f in hub-update.sh hub-control-setpass hub-service hub-cert-sync hub-check.sh; do
     install -o root -g root -m 755 "$HERE/$f" "/usr/local/sbin/$f"
   done
-  for f in "$LIB"/*.py /usr/local/sbin/hub-control-setpass /usr/local/sbin/hub-servizio; do python3 -m py_compile "$f"; done
+  for f in "$LIB"/*.py /usr/local/sbin/hub-control-setpass /usr/local/sbin/hub-service; do python3 -m py_compile "$f"; done
   rm -rf "$LIB/__pycache__" /usr/local/sbin/__pycache__
-  for f in hub-update.sh hub-cert-sync hub-verifica.sh; do bash -n "/usr/local/sbin/$f"; done
+  for f in hub-update.sh hub-cert-sync hub-check.sh; do bash -n "/usr/local/sbin/$f"; done
   [ -f /etc/hub.conf ] || install -o root -g root -m 644 "$HERE/hub.conf" /etc/hub.conf
-  [ -f /srv/hub/config/servizi.json ] || install -o hubctl -g hubctl -m 664 "$HERE/servizi.json" /srv/hub/config/servizi.json
-  for f in "$HERE"/icone/*; do
-    [ -e "/srv/hub/icone/$(basename "$f")" ] || install -o hubctl -g hubctl -m 644 "$f" "/srv/hub/icone/$(basename "$f")"
+  [ -f /srv/hub/config/services.json ] || install -o hubctl -g hubctl -m 664 "$HERE/services.json" /srv/hub/config/services.json
+  for f in "$HERE"/icons/*; do
+    [ -e "/srv/hub/icons/$(basename "$f")" ] || install -o hubctl -g hubctl -m 644 "$f" "/srv/hub/icons/$(basename "$f")"
   done
-  [ -f /etc/hub-control/unita-consentite ] || printf '%s\n' kiwix-hub.service hub-search.service > /etc/hub-control/unita-consentite
-  /usr/local/sbin/hub-servizio regola
-  echo "   regola polkit: hubctl puo' avviare e fermare solo $(grep -v '^#' /etc/hub-control/unita-consentite | paste -sd' ' -)"
+  [ -f /etc/hub-control/allowed-units ] || printf '%s\n' kiwix-hub.service hub-search.service > /etc/hub-control/allowed-units
+  /usr/local/sbin/hub-service rule
+  echo "   polkit rule: hubctl may start and stop only $(grep -v '^#' /etc/hub-control/allowed-units | paste -sd' ' -)"
 
-  echo "== Servizi"
+  echo "== Services"
   for u in kiwix-hub.service hub-search.service hub-control.service hub-cert-sync.path hub-cert-sync.service; do
-    install -o root -g root -m 644 "$HERE/unita/$u" "/etc/systemd/system/$u"
+    install -o root -g root -m 644 "$HERE/units/$u" "/etc/systemd/system/$u"
   done
   systemctl daemon-reload
   systemctl enable kiwix-hub.service hub-search.service hub-control.service >/dev/null 2>&1
   systemctl restart hub-control.service
-  systemctl start kiwix-hub.service hub-search.service 2>/dev/null || true   # partono solo se i contenuti ci sono
-  /usr/local/sbin/hub-update.sh stato
-  echo "   hub-control attivo; Wikipedia e ricerca partiranno appena scaricati i contenuti"
+  systemctl start kiwix-hub.service hub-search.service 2>/dev/null || true   # they start only if the content is there
+  /usr/local/sbin/hub-update.sh status
+  echo "   hub-control running; Wikipedia and search start as soon as their content is downloaded"
 }
 
-do_sito() {
-  echo "== Sito dell'hub"
-  [ -f "$HERE/sito.tar.gz" ] || { echo "   sito.tar.gz non c'e': salto (si installa dal PC con deploy.ps1)"; return 0; }
-  rm -rf /srv/hub/site.nuovo; install -d -o "$ADMIN" -g "$ADMIN" -m 755 /srv/hub/site.nuovo
-  tar -xzf "$HERE/sito.tar.gz" -C /srv/hub/site.nuovo --no-same-owner
-  [ -f /srv/hub/site.nuovo/index.html ] || { rm -rf /srv/hub/site.nuovo; echo "   ERRORE: l'archivio non contiene index.html" >&2; exit 1; }
-  chown -R "$ADMIN:$ADMIN" /srv/hub/site.nuovo; chmod -R u=rwX,go=rX /srv/hub/site.nuovo
-  rm -rf /srv/hub/site.vecchio; mv /srv/hub/site /srv/hub/site.vecchio; mv /srv/hub/site.nuovo /srv/hub/site
-  rm -rf /srv/hub/site.vecchio
-  echo "   installato in /srv/hub/site"
+do_site() {
+  echo "== Hub website"
+  [ -f "$HERE/site.tar.gz" ] || { echo "   site.tar.gz not found: skipping (it is installed from the PC with deploy.ps1)"; return 0; }
+  rm -rf /srv/hub/site.new; install -d -o "$ADMIN" -g "$ADMIN" -m 755 /srv/hub/site.new
+  tar -xzf "$HERE/site.tar.gz" -C /srv/hub/site.new --no-same-owner
+  [ -f /srv/hub/site.new/index.html ] || { rm -rf /srv/hub/site.new; echo "   ERROR: the archive does not contain index.html" >&2; exit 1; }
+  chown -R "$ADMIN:$ADMIN" /srv/hub/site.new; chmod -R u=rwX,go=rX /srv/hub/site.new
+  rm -rf /srv/hub/site.old; mv /srv/hub/site /srv/hub/site.old; mv /srv/hub/site.new /srv/hub/site
+  rm -rf /srv/hub/site.old
+  echo "   installed to /srv/hub/site"
 }
 
-do_attiva() {
-  echo "== Certificato HTTPS di casa"
+do_enable() {
+  echo "== Home HTTPS certificate"
   if [ ! -s /etc/pihole-ca/ca.crt ] || [ ! -x /usr/local/sbin/pihole-cert.sh ]; then
-    [ -f "$PISETUP/install.sh" ] || { echo "   ERRORE: non trovo $PISETUP/install.sh per creare la CA di casa" >&2; exit 1; }
-    echo "   creo la CA di casa con install.sh homeca (Pi-hole si riavvia: DNS fermo per qualche secondo)"
+    [ -f "$PISETUP/install.sh" ] || { echo "   ERROR: $PISETUP/install.sh not found, it is needed to create the home CA" >&2; exit 1; }
+    echo "   creating the home CA with install.sh homeca (Pi-hole restarts: DNS stops for a few seconds)"
     bash "$PISETUP/install.sh" homeca | sed 's/^/   /'
   fi
-  [ -s /etc/pihole-ca/ca.crt ] || { echo "   ERRORE: la CA di casa non e' stata creata" >&2; exit 1; }
+  [ -s /etc/pihole-ca/ca.crt ] || { echo "   ERROR: the home CA was not created" >&2; exit 1; }
   openssl verify -CAfile /etc/pihole-ca/ca.crt <(openssl x509 -in /etc/pihole/tls.pem) >/dev/null 2>&1 \
-    || { echo "   ERRORE: /etc/pihole/tls.pem non e' firmato dalla CA di casa (prova: sudo pihole-cert.sh renew)" >&2; exit 1; }
+    || { echo "   ERROR: /etc/pihole/tls.pem is not signed by the home CA (try: sudo pihole-cert.sh renew)" >&2; exit 1; }
   /usr/local/sbin/hub-cert-sync
   systemctl enable --now hub-cert-sync.path >/dev/null 2>&1
-  echo "   certificato valido fino al $(openssl x509 -in /etc/caddy/certs/tls.pem -noout -enddate | cut -d= -f2)"
+  echo "   certificate valid until $(openssl x509 -in /etc/caddy/certs/tls.pem -noout -enddate | cut -d= -f2)"
 
   echo "== Caddy"
-  if [ -f /etc/caddy/Caddyfile ] && ! grep -q "Hub di casa" /etc/caddy/Caddyfile && [ ! -f /etc/caddy/Caddyfile.originale ]; then
-    cp -p /etc/caddy/Caddyfile /etc/caddy/Caddyfile.originale
+  # "Hub di casa" marks the Caddyfile written by raspberry-hub 1.x
+  if [ -f /etc/caddy/Caddyfile ] && ! grep -q -e "raspberry-hub" -e "Hub di casa" /etc/caddy/Caddyfile \
+     && [ ! -f /etc/caddy/Caddyfile.orig ]; then
+    cp -p /etc/caddy/Caddyfile /etc/caddy/Caddyfile.orig
   fi
-  install -o root -g root -m 644 "$HERE/Caddyfile" /etc/caddy/Caddyfile.nuovo
-  sed -i "s/@IP_RASPBERRY@/$PI/g" /etc/caddy/Caddyfile.nuovo
-  caddy validate --config /etc/caddy/Caddyfile.nuovo --adapter caddyfile >/dev/null 2>/tmp/hub-caddy.err \
-    || { sed 's/^/   /' /tmp/hub-caddy.err >&2; echo "   ERRORE: Caddyfile non valido, mi fermo senza toccare nulla" >&2; exit 1; }
-  mv -f /etc/caddy/Caddyfile.nuovo /etc/caddy/Caddyfile
-  echo "   configurazione valida"
+  install -o root -g root -m 644 "$HERE/Caddyfile" /etc/caddy/Caddyfile.new
+  sed -i "s/@RASPBERRY_IP@/$PI/g" /etc/caddy/Caddyfile.new
+  caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null 2>/tmp/hub-caddy.err \
+    || { sed 's/^/   /' /tmp/hub-caddy.err >&2; echo "   ERROR: invalid Caddyfile, stopping without changing anything" >&2; exit 1; }
+  mv -f /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
+  echo "   configuration valid"
 
-  echo "== Web di Pi-hole su $PORTA_PIHOLE"
-  attuale=$(pihole-FTL --config webserver.port)
-  if [ "$attuale" != "$PORTA_PIHOLE" ]; then
-    [ -f /etc/hub-control/pihole-porta-originale ] || echo "$attuale" > /etc/hub-control/pihole-porta-originale
-    [ -x /usr/local/sbin/pihole-backup.sh ] && { /usr/local/sbin/pihole-backup.sh >/dev/null 2>&1 && echo "   backup della configurazione eseguito" || echo "   ATTENZIONE: backup non riuscito"; }
+  echo "== Pi-hole web interface on $PIHOLE_PORT"
+  current=$(pihole-FTL --config webserver.port)
+  if [ "$current" != "$PIHOLE_PORT" ]; then
+    [ -f /etc/hub-control/pihole-original-port ] || echo "$current" > /etc/hub-control/pihole-original-port
+    [ -x /usr/local/sbin/pihole-backup.sh ] && { /usr/local/sbin/pihole-backup.sh >/dev/null 2>&1 && echo "   configuration backed up" || echo "   WARNING: backup failed"; }
     systemctl stop caddy 2>/dev/null || true
-    pihole-FTL --config webserver.port "$PORTA_PIHOLE" >/dev/null
+    pihole-FTL --config webserver.port "$PIHOLE_PORT" >/dev/null
     systemctl restart pihole-FTL
-    if ! ftl_pronto "$PORTA_PIHOLE"; then
-      echo "   ERRORE: Pi-hole non risponde sulla nuova porta, rimetto quella di prima" >&2
-      pihole-FTL --config webserver.port "$attuale" >/dev/null; systemctl restart pihole-FTL
+    if ! ftl_ready "$PIHOLE_PORT"; then
+      echo "   ERROR: Pi-hole does not answer on the new port, restoring the previous one" >&2
+      pihole-FTL --config webserver.port "$current" >/dev/null; systemctl restart pihole-FTL
       exit 1
     fi
-    echo "   spostato (prima era: $attuale)"
+    echo "   moved (it was: $current)"
   else
-    echo "   gia' a posto"
+    echo "   already in place"
   fi
 
-  echo "== Avvio"
+  echo "== Start"
   systemctl enable caddy >/dev/null 2>&1
   systemctl restart caddy
   sleep 3
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --cacert /etc/pihole-ca/ca.crt --resolve raspberry:443:127.0.0.1 https://raspberry/controllo/stato || true)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --cacert /etc/pihole-ca/ca.crt --resolve raspberry:443:127.0.0.1 https://raspberry/control/status || true)
   if [ "$code" != 200 ]; then
-    echo "   ERRORE: l'hub non risponde in HTTPS (codice $code). Per tornare indietro: sudo bash hub-install.sh disattiva" >&2
+    echo "   ERROR: the hub does not answer over HTTPS (code $code). To roll back: sudo bash hub-install.sh disable" >&2
     journalctl -u caddy -n 15 --no-pager | sed 's/^/   /' >&2
     exit 1
   fi
-  echo "   https://raspberry risponde con il certificato di casa"
-  echo "   CA da importare sui dispositivi: http://raspberry/ca.crt"
+  echo "   https://raspberry answers with the home certificate"
+  echo "   CA to import on your devices: http://raspberry/ca.crt"
 }
 
-do_mensile() {
-  echo "== Aggiornamento mensile e backup"
+do_monthly() {
+  echo "== Monthly update and backup"
   [ -f "$PISETUP/monthly-update.sh" ] && [ -f "$PISETUP/pihole-backup.sh" ] && [ -f "$PISETUP/install.sh" ] \
-    || { echo "   non trovo il pacchetto pi-setup in $PISETUP: salto"; return 0; }
+    || { echo "   pi-setup package not found in $PISETUP: skipping"; return 0; }
   PISETUP="$PISETUP" python3 - <<'PY'
 import os, sys
 base = os.environ["PISETUP"]
 
-mensile = os.path.join(base, "monthly-update.sh")
-testo = open(mensile, encoding="utf-8").read()
-if "hub-update.sh" in testo:
-    print("   monthly-update.sh: gia' aggiornato")
-else:
-    segno = '    echo "===== $(ts) riavvio ====="'
-    if segno not in testo:
-        sys.exit("   ERRORE: non trovo il punto del riavvio in monthly-update.sh, non lo modifico")
-    blocco = '''    # Contenuti dell'hub: Wikipedia offline, mappe e indice degli indirizzi (vedi hub-update.sh).
+# The hub block goes right before the reboot step of pi-setup's monthly-update.sh. The anchor and the
+# 1.x block below are matched as they are written in files outside this repository.
+ANCHOR = '    echo "===== $(ts) riavvio ====="'
+BLOCK = '''    # raspberry-hub content: offline Wikipedia, maps and address index (see hub-update.sh).
+    # An error here does not stop the reboot: it is logged and reported.
+    if [ -x /usr/local/sbin/hub-update.sh ]; then
+      echo "===== $(ts) updating the hub content (Wikipedia, maps, addresses) ====="
+      if timeout 6h /usr/local/sbin/hub-update.sh all; then
+        echo "===== $(ts) hub content updated ====="
+      else
+        echo "===== $(ts) WARNING: the hub content update failed or is incomplete ====="
+        [ -x /usr/local/bin/netmon ] && /usr/local/bin/netmon notify "⚠️ Hub: updating Wikipedia, maps or addresses failed: see /var/log/monthly-update.log" >/dev/null 2>&1
+      fi
+    fi
+
+'''
+BLOCK_1X = '''    # Contenuti dell'hub: Wikipedia offline, mappe e indice degli indirizzi (vedi hub-update.sh).
     # Un errore qui non blocca il riavvio: viene registrato e segnalato.
     if [ -x /usr/local/sbin/hub-update.sh ]; then
       echo "===== $(ts) aggiorno i contenuti dell'hub (Wikipedia, mappe, indirizzi) ====="
@@ -215,24 +229,44 @@ else:
     fi
 
 '''
-    open(mensile, "w", encoding="utf-8", newline="\n").write(testo.replace(segno, blocco + segno, 1))
-    print("   monthly-update.sh: aggiunto l'aggiornamento dei contenuti dell'hub prima del riavvio")
+
+monthly = os.path.join(base, "monthly-update.sh")
+text = open(monthly, encoding="utf-8").read()
+if BLOCK in text:
+    print("   monthly-update.sh: already up to date")
+elif BLOCK_1X in text:
+    open(monthly, "w", encoding="utf-8", newline="\n").write(text.replace(BLOCK_1X, BLOCK, 1))
+    print("   monthly-update.sh: hub block updated")
+elif "hub-update.sh" in text:
+    print("   monthly-update.sh: already calls hub-update.sh (edited by hand), left as it is")
+else:
+    if ANCHOR not in text:
+        sys.exit("   ERROR: cannot find the reboot step in monthly-update.sh, not changing it")
+    open(monthly, "w", encoding="utf-8", newline="\n").write(text.replace(ANCHOR, BLOCK + ANCHOR, 1))
+    print("   monthly-update.sh: added the hub content update before the reboot")
+
+LIST_ANCHOR = "for f in etc/unbound/unbound.conf.d etc/netmon.conf usr/local/sbin usr/local/bin/netmon \\\n"
+FILES = ("         etc/hub.conf etc/caddy/Caddyfile etc/caddy/services etc/hub-control/allowed-units \\\n"
+         "         etc/polkit-1/rules.d/50-hub-control.rules usr/local/lib/raspberry-hub srv/hub/config srv/hub/icons \\\n"
+         "         etc/systemd/system/kiwix-hub.service etc/systemd/system/hub-search.service \\\n"
+         "         etc/systemd/system/hub-control.service etc/systemd/system/hub-cert-sync.path \\\n"
+         "         etc/systemd/system/hub-cert-sync.service \\\n")
+FILES_1X = FILES.replace("etc/caddy/services", "etc/caddy/servizi") \
+                .replace("etc/hub-control/allowed-units", "etc/hub-control/unita-consentite") \
+                .replace("srv/hub/icons", "srv/hub/icone")
 
 backup = os.path.join(base, "pihole-backup.sh")
-testo = open(backup, encoding="utf-8").read()
-if "etc/hub.conf" in testo:
-    print("   pihole-backup.sh: gia' aggiornato")
+text = open(backup, encoding="utf-8").read()
+if FILES in text:
+    print("   pihole-backup.sh: already up to date")
+elif FILES_1X in text:
+    open(backup, "w", encoding="utf-8", newline="\n").write(text.replace(FILES_1X, FILES, 1))
+    print("   pihole-backup.sh: hub file list updated")
 else:
-    segno = "for f in etc/unbound/unbound.conf.d etc/netmon.conf usr/local/sbin usr/local/bin/netmon \\\n"
-    if segno not in testo:
-        sys.exit("   ERRORE: non trovo l'elenco dei file in pihole-backup.sh, non lo modifico")
-    aggiunta = ("         etc/hub.conf etc/caddy/Caddyfile etc/caddy/servizi etc/hub-control/unita-consentite \\\n"
-                "         etc/polkit-1/rules.d/50-hub-control.rules usr/local/lib/raspberry-hub srv/hub/config srv/hub/icone \\\n"
-                "         etc/systemd/system/kiwix-hub.service etc/systemd/system/hub-search.service \\\n"
-                "         etc/systemd/system/hub-control.service etc/systemd/system/hub-cert-sync.path \\\n"
-                "         etc/systemd/system/hub-cert-sync.service \\\n")
-    open(backup, "w", encoding="utf-8", newline="\n").write(testo.replace(segno, segno + aggiunta, 1))
-    print("   pihole-backup.sh: aggiunta la configurazione dell'hub all'elenco dei file")
+    if LIST_ANCHOR not in text:
+        sys.exit("   ERROR: cannot find the file list in pihole-backup.sh, not changing it")
+    open(backup, "w", encoding="utf-8", newline="\n").write(text.replace(LIST_ANCHOR, LIST_ANCHOR + FILES, 1))
+    print("   pihole-backup.sh: added the hub configuration to the file list")
 PY
   bash -n "$PISETUP/monthly-update.sh" && bash -n "$PISETUP/pihole-backup.sh"
   chown --reference="$PISETUP" "$PISETUP/monthly-update.sh" "$PISETUP/pihole-backup.sh"
@@ -240,23 +274,23 @@ PY
   install -o root -g root -m 750 "$PISETUP/pihole-backup.sh" /usr/local/sbin/pihole-backup.sh
 }
 
-do_disattiva() {
-  echo "== Ritorno alla situazione precedente"
+do_disable() {
+  echo "== Rolling back"
   systemctl disable --now caddy >/dev/null 2>&1 || true
-  originale=$(cat /etc/hub-control/pihole-porta-originale 2>/dev/null || echo "80o,443os,[::]:80o,[::]:443os")
-  pihole-FTL --config webserver.port "$originale" >/dev/null
+  original=$(cat /etc/hub-control/pihole-original-port 2>/dev/null || echo "80o,443os,[::]:80o,[::]:443os")
+  pihole-FTL --config webserver.port "$original" >/dev/null
   systemctl restart pihole-FTL
-  ftl_pronto 127.0.0.1 && echo "   Pi-hole di nuovo su: $originale" || echo "   ATTENZIONE: Pi-hole non risponde ancora, controlla: systemctl status pihole-FTL"
-  echo "   Caddy fermo. Wikipedia, ricerca e contenuti restano installati (sudo systemctl disable --now kiwix-hub hub-search hub-control per fermarli)."
+  ftl_ready 127.0.0.1 && echo "   Pi-hole back on: $original" || echo "   WARNING: Pi-hole does not answer yet, check: systemctl status pihole-FTL"
+  echo "   Caddy stopped. Wikipedia, search and content stay installed (sudo systemctl disable --now kiwix-hub hub-search hub-control to stop them)."
 }
 
 case "$WHAT" in
-  prepara)   do_prepara ;;
-  sito)      do_sito ;;
-  attiva)    do_attiva ;;
-  mensile)   do_mensile ;;
-  disattiva) do_disattiva ;;
-  tutto)     do_prepara; do_sito; do_attiva; do_mensile ;;
-  *) echo "Uso: sudo bash hub-install.sh [prepara|sito|attiva|mensile|disattiva]" >&2; exit 1 ;;
+  prepare) do_prepare ;;
+  site)    do_site ;;
+  enable)  do_enable ;;
+  monthly) do_monthly ;;
+  disable) do_disable ;;
+  all)     do_prepare; do_site; do_enable; do_monthly ;;
+  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable]" >&2; exit 1 ;;
 esac
-echo "== Fatto."
+echo "== Done."
