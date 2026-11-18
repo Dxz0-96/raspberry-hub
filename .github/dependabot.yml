@@ -1,16 +1,23 @@
+# Grouped and monthly, to keep the number of pull requests (and notification emails) low.
+# Security fixes are not delayed by the schedule: Dependabot opens them as soon as an advisory appears,
+# grouped into one pull request per ecosystem. Major npm updates stay separate: they need a closer look.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /hub
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 3
     commit-message:
       prefix: build
       include: scope
     groups:
-      minor-and-patch:
+      npm-minor-and-patch:
+        applies-to: version-updates
         update-types: [minor, patch]
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -19,3 +26,6 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+    groups:
+      github-actions:
+        patterns: ["*"]

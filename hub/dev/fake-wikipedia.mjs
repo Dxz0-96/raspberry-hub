@@ -62,12 +62,22 @@ ${text.map((p) => `<p>${p}</p>`).join("\n")}
 const xml = (t) => t.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const thousands = (n) => n.toLocaleString("en-US"); // Kiwix: "11,661"
 
+/** The text of a paragraph without its tags, as Kiwix sends the search snippets. */
+function plainText(html) {
+  let text = html;
+  for (let before = ""; before !== text; ) {
+    before = text;
+    text = text.replace(/<[^<>]*>/g, "");
+  }
+  return text.replaceAll("<", "").replaceAll(">", "");
+}
+
 /** Full-text search results: the articles containing the words, then (for "garibaldi") many generated ones. */
 function search(query) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const found = Object.entries(ARTICLES)
     .filter(([, a]) => words.every((w) => `${a.title} ${a.paragraphs.join(" ")}`.toLowerCase().includes(w)))
-    .map(([path, a]) => ({ path, title: a.title, snippet: a.paragraphs.join(" ").replace(/<[^>]+>/g, ""), words: 1067 }));
+    .map(([path, a]) => ({ path, title: a.title, snippet: plainText(a.paragraphs.join(" ")), words: 1067 }));
   if (words.includes("garibaldi")) {
     for (let i = found.length; i < 11661; i++) {
       found.push({ path: `Garibaldi_${i}`, title: `Garibaldi ${i}`, snippet: `An article that mentions Garibaldi, number ${i}.`, words: 120 + i });

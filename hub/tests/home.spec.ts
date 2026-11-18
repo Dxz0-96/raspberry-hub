@@ -45,6 +45,21 @@ test.describe("Home", () => {
       .toHaveAttribute("href", "https://github.com/Dxz0-96/raspberry-hub/issues/new/choose");
   });
 
+  test("the footer says when the Raspberry Pi scripts are from another release", async ({ page }) => {
+    await page.goto("/");
+    const footer = page.getByRole("contentinfo");
+    await expect(footer).toContainText("raspberry hub");
+    await expect(footer.getByText(/the Raspberry Pi scripts are/)).toHaveCount(0);
+
+    await page.route("**/control/status", async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...(await response.json()), version: "0.9.0" } });
+    });
+    await page.reload();
+    await expect(footer.getByText(/the Raspberry Pi scripts are 0\.9\.0\. To bring them in step, run/)).toBeVisible();
+    await expect(footer.getByText(".\\deploy.ps1 -Update")).toBeVisible();
+  });
+
   test("the page Caddy shows for a service that is off", async ({ page }) => {
     await page.goto("/unavailable/");
     await expect(page.getByRole("heading", { name: "This service is off or not responding" })).toBeVisible();

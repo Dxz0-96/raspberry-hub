@@ -68,7 +68,8 @@ Also check that:
 - anything that changes files, paths, settings or JSON formats on the Raspberry Pi comes with a migration in
   `pi/hub-migrate.py` and a test in `pi/tests/test_pi.py`, so existing installations upgrade with
   `.\deploy.ps1 -Update`;
-- `CHANGELOG.md` has a line under "Unreleased" for anything a user would notice;
+- the pull request title says what changes for someone using the hub: it becomes the commit on `main` and the
+  line in the changelog (see [Releases](#releases));
 - the README screenshots are refreshed (`npm run screenshots` in `hub/`) if the interface changed visibly.
 
 ## Commit messages
@@ -147,10 +148,24 @@ To add a language: copy `it.ts`, translate it, add the code to `LOCALES` and `ME
 
 ## Releases
 
-The version lives in `hub/package.json` and shows in the footer of the hub. To release, move the "Unreleased"
-section of `CHANGELOG.md` under the new version number, bump `hub/package.json`, and tag the merge commit
-`vX.Y.Z`. Versions follow [Semantic Versioning](https://semver.org/): a change that needs a migration on the
-Pi is a major version.
+Releases are made by [release-please](https://github.com/googleapis/release-please)
+(`.github/workflows/release.yml`), from the Conventional Commits merged into `main`:
+
+1. After every merge it opens or updates a **release pull request**, `chore(main): release X.Y.Z`, with the
+   next version and the new `CHANGELOG.md` entry. `fix` bumps the patch, `feat` the minor, and `!` or a
+   `BREAKING CHANGE:` footer the major version ([Semantic Versioning](https://semver.org/)); `docs`, `build`
+   and the other types are listed but do not trigger a release on their own.
+2. Merging the release pull request tags `vX.Y.Z` and publishes the GitHub release with the same notes.
+
+**Never edit versions or `CHANGELOG.md` by hand.** The version lives in `version.txt` and
+`.release-please-manifest.json`; release-please copies it into `hub/package.json` (shown in the footer of the
+hub) and into `pi/hub-install.sh` (written to the Pi, so the hub can tell when the website and the Pi scripts
+come from different releases). A change that needs a migration on the Pi is a breaking change: mark it with
+`!` and describe the upgrade in [docs/upgrading.md](docs/upgrading.md).
+
+Pull requests opened by GitHub Actions do not start other workflows, so `release.yml` starts CI on the
+release pull request itself (`workflow_dispatch`); the "Commit convention" check is skipped there and counts
+as passed.
 
 ## License
 

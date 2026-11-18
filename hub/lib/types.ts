@@ -42,6 +42,8 @@ export interface StatusResponse {
   authenticated: boolean;
   user: string | null;
   configured: boolean;
+  /** Version of the Raspberry Pi scripts (written by hub-install.sh); null on installs older than 2.0 */
+  version?: string | null;
   services: Record<string, LiveState>;
   dns?: Dns | null;
 }

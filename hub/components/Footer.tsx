@@ -1,6 +1,7 @@
 "use client";
 
-import { Bug, Download, GitBranch, Scale } from "lucide-react";
+import { Bug, Download, GitBranch, Scale, TriangleAlert } from "lucide-react";
+import { useHub } from "@/lib/hub";
 import { longDate } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 
@@ -16,6 +17,9 @@ const ON_GITHUB = REPO_NAME !== REPO;
 /** The footer: what the hub is, version, source code and where the data comes from. */
 export function Footer() {
   const { t, locale } = useI18n();
+  const { piVersion } = useHub();
+  // the website and the Raspberry Pi scripts come from different releases: deploy.ps1 without -Update
+  const outOfStep = Boolean(VERSION && piVersion && piVersion !== VERSION);
   return (
     <footer className="footer">
       <div className="footer-inner">
@@ -35,6 +39,12 @@ export function Footer() {
           </p>
           <p>{t.footer.about}</p>
           {BUILT && <p className="footer-small">{t.footer.built(longDate(BUILT, locale))}</p>}
+          {outOfStep && piVersion && (
+            <p className="footer-warning">
+              <TriangleAlert size={16} aria-hidden="true" />
+              <span>{t.footer.versionMismatch(VERSION, piVersion)} <code>.\deploy.ps1 -Update</code></span>
+            </p>
+          )}
         </div>
         <ul className="footer-links">
           {REPO && (

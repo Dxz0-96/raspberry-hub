@@ -18,4 +18,5 @@ See CONTRIBUTING.md.
 
 - [ ] New or changed interface text is in both `hub/lib/messages/en.ts` and `hub/lib/messages/it.ts`
 - [ ] Changes to files, paths or settings on the Raspberry Pi are migrated by `pi/hub-migrate.py`
-- [ ] README, CHANGELOG (under "Unreleased") and screenshots are updated if something visible changed
+- [ ] README and screenshots are updated if something visible changed (CHANGELOG is written by release-please)
+- [ ] Breaking changes are marked with `!` in the title and explained in `docs/upgrading.md`
