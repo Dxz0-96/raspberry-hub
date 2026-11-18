@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Costruisce l'indice di ricerca degli indirizzi dal dump Photon/Nominatim (dati OpenStreetMap).
+"""Builds the address search index from the Photon/Nominatim dump (OpenStreetMap data).
 
-    zstd -dc photon-dump-italy-1.0-latest.jsonl.zst | build-search-index.py --out indirizzi.db
-    build-search-index.py --verifica indirizzi.db   prova una ricerca; esce con 0 se l'indice risponde
-    build-search-index.py --data indirizzi.db       stampa la data dei dati (AAAA-MM-GG)
+    zstd -dc photon-dump-italy-1.0-latest.jsonl.zst | build-search-index.py --out addresses.db
+    build-search-index.py --check addresses.db     runs a test search; exits with 0 if the index answers
+    build-search-index.py --date addresses.db      prints the date of the data (YYYY-MM-DD)
+    build-search-index.py --migrate addresses.db   converts an index built by an older version, in place
 
-Legge il dump riga per riga da stdin e lavora su disco: la memoria usata resta bassa anche sul Pi 3.
-I file temporanei di SQLite vanno nella cartella indicata da SQLITE_TMPDIR (non in /tmp, che e' in RAM).
+Reads the dump line by line from stdin and works on disk: memory use stays low even on a Pi 3.
+SQLite temporary files go to the directory in SQLITE_TMPDIR (not /tmp, which is in RAM).
 
-Tabelle prodotte:
-    voci    una riga per via (segmenti uniti per nome + comune + CAP), localita' o luogo con nome
-    testo   indice full-text FTS5 sulle voci (nome, luogo, cella geografica)
-    civici  numeri civici con coordinate, cercati per nome normalizzato della via
-    meta    data dei dati e conteggi
+Tables:
+    entries         one row per street (segments merged by name + city + postcode), locality or named place
+    entries_fts     FTS5 full-text index over the entries (name, place, geographic cell)
+    house_numbers   house numbers with coordinates, looked up by normalized street name
+    meta            data date and counts
 """
 import argparse
 import json
@@ -22,232 +23,300 @@ import sys
 import time
 import unicodedata
 
-SCHEMA = 2
-LOTTO = 5000
-# La geometria e' la parte piu' pesante di ogni riga e non serve: toglierla prima di leggere il JSON
-# dimezza i tempi. Le geometrie GeoJSON semplici non contengono parentesi graffe annidate.
-SENZA_GEOMETRIA = re.compile(r',\s*"geometry"\s*:\s*\{[^{}]*\}')
-LOCALITA = {"city", "district", "locality", "county", "state"}
+SCHEMA = 3
+BATCH = 5000
+# The geometry is the heaviest part of each line and is not needed: dropping it before parsing the JSON
+# halves the time. Simple GeoJSON geometries contain no nested braces.
+WITHOUT_GEOMETRY = re.compile(r',\s*"geometry"\s*:\s*\{[^{}]*\}')
+LOCALITY_TYPES = {"city", "district", "locality", "county", "state"}
+
+# The full-text index, created from the entries table. "cell" is a half-degree box (about 50 km): it is
+# used to search near a point. Separate statements so that --migrate can run them inside its transaction.
+FTS_STATEMENTS = [
+    """CREATE VIRTUAL TABLE entries_fts USING fts5(name, place, cell, content='',
+                                                 tokenize="unicode61 remove_diacritics 2", prefix='2 3 4')""",
+    """INSERT INTO entries_fts(rowid, name, place, cell)
+         SELECT id, name || ' ' || alt, city || ' ' || district || ' ' || province || ' ' || postcode,
+                'c' || CAST((lat + 90) * 2 AS INTEGER) || 'x' || CAST((lon + 180) * 2 AS INTEGER) FROM entries""",
+]
+FTS_OPTIMIZE = "INSERT INTO entries_fts(entries_fts) VALUES('optimize')"
 
 
-def norm(testo):
-    """minuscole, senza accenti, solo lettere e cifre separate da uno spazio"""
-    testo = unicodedata.normalize("NFKD", testo.lower())
-    testo = "".join(c for c in testo if not unicodedata.combining(c))
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", testo).split())
+def norm(text):
+    """lower case, no accents, only letters and digits separated by one space"""
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", text).split())
 
 
-def norm_civico(numero):
-    return re.sub(r"[\s/.\\-]+", "", numero.upper())[:12]
+def norm_house_number(number):
+    return re.sub(r"[\s/.\\-]+", "", number.upper())[:12]
 
 
-def primo(valore):
-    if isinstance(valore, list):
-        valore = valore[0] if valore else ""
-    return valore.strip() if isinstance(valore, str) else ""
+def first(value):
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return value.strip() if isinstance(value, str) else ""
 
 
-def leggi_luoghi(flusso):
-    """Restituisce (intestazione, luogo) per ogni luogo del dump; l'intestazione arriva una volta sola."""
-    for riga in flusso:
-        riga = riga.lstrip()                     # nel dump le righe dopo la prima iniziano con uno spazio
-        if not riga or riga[0] != "{":
+def read_places(stream):
+    """Yields (header, place) for every place in the dump; the header arrives only once."""
+    for line in stream:
+        line = line.lstrip()                     # in the dump, lines after the first start with a space
+        if not line or line[0] != "{":
             continue
         try:
-            doc = json.loads(SENZA_GEOMETRIA.sub("", riga))
+            doc = json.loads(WITHOUT_GEOMETRY.sub("", line))
         except ValueError:
             continue
-        tipo = doc.get("type")
-        contenuto = doc.get("content")
-        if tipo == "NominatimDumpFile":
-            yield contenuto, None
-        elif tipo == "Place":
-            for luogo in contenuto if isinstance(contenuto, list) else [contenuto]:
-                if isinstance(luogo, dict):
-                    yield None, luogo
+        kind = doc.get("type")
+        content = doc.get("content")
+        if kind == "NominatimDumpFile":
+            yield content, None
+        elif kind == "Place":
+            for place in content if isinstance(content, list) else [content]:
+                if isinstance(place, dict):
+                    yield None, place
 
 
-def costruisci(uscita):
-    inizio = time.time()
-    db = sqlite3.connect(uscita, isolation_level=None)
+def build(output):
+    start = time.time()
+    db = sqlite3.connect(output, isolation_level=None)
     db.executescript("""
         PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; PRAGMA locking_mode=EXCLUSIVE;
         PRAGMA cache_size=-48000; PRAGMA temp_store=FILE;
-        CREATE TABLE grezzo(tipo TEXT, nome TEXT, alt TEXT, nn TEXT, comune TEXT, cn TEXT, cap TEXT, prov TEXT,
-                            regione TEXT, zona TEXT, lat REAL, lon REAL, o REAL, s REAL, e REAL, n REAL,
-                            imp REAL, classe TEXT);
-        CREATE TABLE civ_grezzo(strada TEXT, nn TEXT, numero TEXT, comune TEXT, cn TEXT, cap TEXT, prov TEXT,
-                                regione TEXT, lat REAL, lon REAL);
-        CREATE TABLE meta(chiave TEXT PRIMARY KEY, valore TEXT);
+        CREATE TABLE raw(type TEXT, name TEXT, alt TEXT, name_norm TEXT, city TEXT, city_norm TEXT, postcode TEXT,
+                         province TEXT, region TEXT, district TEXT, lat REAL, lon REAL,
+                         west REAL, south REAL, east REAL, north REAL, importance REAL, class TEXT);
+        CREATE TABLE raw_numbers(street TEXT, street_norm TEXT, number TEXT, city TEXT, city_norm TEXT,
+                                 postcode TEXT, province TEXT, region TEXT, lat REAL, lon REAL);
+        CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
     """)
-    voci, civici, letti, data_dati = [], [], 0, ""
+    entries, numbers, read, data_date = [], [], 0, ""
 
-    def scarica():
-        if voci:
-            db.executemany("INSERT INTO grezzo VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", voci)
-            voci.clear()
-        if civici:
-            db.executemany("INSERT INTO civ_grezzo VALUES (?,?,?,?,?,?,?,?,?,?)", civici)
-            civici.clear()
+    def flush():
+        if entries:
+            db.executemany("INSERT INTO raw VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", entries)
+            entries.clear()
+        if numbers:
+            db.executemany("INSERT INTO raw_numbers VALUES (?,?,?,?,?,?,?,?,?,?)", numbers)
+            numbers.clear()
 
     db.execute("BEGIN")
-    for intestazione, p in leggi_luoghi(sys.stdin):
-        if intestazione is not None:
-            data_dati = str(intestazione.get("data_timestamp", ""))[:10]
+    for header, p in read_places(sys.stdin):
+        if header is not None:
+            data_date = str(header.get("data_timestamp", ""))[:10]
             continue
-        letti += 1
-        centro = p.get("centroid")
-        if not centro or len(centro) != 2:
+        read += 1
+        centroid = p.get("centroid")
+        if not centroid or len(centroid) != 2:
             continue
-        lon, lat = centro
-        ind = p.get("address") or {}
-        comune = primo(ind.get("city"))
-        cap = (re.findall(r"\d{5}", str(p.get("postcode") or "")) or [""])[0]
-        prov = primo(ind.get("county"))
-        regione = primo(ind.get("state"))
-        tipo_ind = p.get("address_type")
+        lon, lat = centroid
+        address = p.get("address") or {}
+        city = first(address.get("city"))
+        postcode = (re.findall(r"\d{5}", str(p.get("postcode") or "")) or [""])[0]
+        province = first(address.get("county"))
+        region = first(address.get("state"))
+        address_type = p.get("address_type")
 
-        numero = p.get("housenumber")
-        strada = primo(ind.get("street"))
-        if numero and strada:
-            for n in re.split(r"[;,]", str(numero))[:4]:
-                n = norm_civico(n)
+        number = p.get("housenumber")
+        street = first(address.get("street"))
+        if number and street:
+            for n in re.split(r"[;,]", str(number))[:4]:
+                n = norm_house_number(n)
                 if n:
-                    civici.append((strada, norm(strada), n, comune, norm(comune), cap, prov, regione, lat, lon))
+                    numbers.append((street, norm(street), n, city, norm(city), postcode, province, region, lat, lon))
 
-        nomi = p.get("name") or {}
-        nome = primo(nomi.get("name:it")) or primo(nomi.get("name"))
-        if nome and tipo_ind != "country":
-            alt = " ".join(x for x in (primo(nomi.get("alt_name")), primo(nomi.get("loc_name")),
-                                       primo(nomi.get("short_name"))) if x)
-            riquadro = p.get("bbox") or [lon, lat, lon, lat]       # ovest, nord, est, sud
-            if len(riquadro) != 4:
-                riquadro = [lon, lat, lon, lat]
-            if tipo_ind == "street":
-                tipo = "via"
-            elif tipo_ind in LOCALITA:
-                tipo = "luogo"
+        names = p.get("name") or {}
+        name = first(names.get("name:it")) or first(names.get("name"))
+        if name and address_type != "country":
+            alt = " ".join(x for x in (first(names.get("alt_name")), first(names.get("loc_name")),
+                                       first(names.get("short_name"))) if x)
+            bbox = p.get("bbox") or [lon, lat, lon, lat]          # west, north, east, south
+            if len(bbox) != 4:
+                bbox = [lon, lat, lon, lat]
+            if address_type == "street":
+                kind = "street"
+            elif address_type in LOCALITY_TYPES:
+                kind = "place"
             else:
-                tipo = "poi"
-            zona = primo(ind.get("suburb")) or primo(ind.get("neighbourhood"))
-            # per i confini amministrativi conta il livello (comune, provincia, regione), non il tag OSM
-            if p.get("osm_key") == "boundary" or tipo_ind in ("county", "state"):
-                classe = f"tipo={tipo_ind}"
+                kind = "poi"
+            district = first(address.get("suburb")) or first(address.get("neighbourhood"))
+            # for administrative boundaries the level matters (city, province, region), not the OSM tag
+            if p.get("osm_key") == "boundary" or address_type in ("county", "state"):
+                place_class = f"level={address_type}"
             else:
-                classe = f"{p.get('osm_key', '')}={p.get('osm_value', '')}"
-            voci.append((tipo, nome, alt, norm(nome), comune, norm(comune), cap, prov, regione, zona, lat, lon,
-                         riquadro[0], riquadro[3], riquadro[2], riquadro[1], float(p.get("importance") or 0),
-                         classe))
-        if len(voci) >= LOTTO or len(civici) >= LOTTO:
-            scarica()
-        if letti % 500000 == 0:
-            print(f"  letti {letti:,} luoghi in {time.time() - inizio:.0f} s", file=sys.stderr, flush=True)
-    scarica()
+                place_class = f"{p.get('osm_key', '')}={p.get('osm_value', '')}"
+            entries.append((kind, name, alt, norm(name), city, norm(city), postcode, province, region, district,
+                            lat, lon, bbox[0], bbox[3], bbox[2], bbox[1], float(p.get("importance") or 0),
+                            place_class))
+        if len(entries) >= BATCH or len(numbers) >= BATCH:
+            flush()
+        if read % 500000 == 0:
+            print(f"  read {read:,} places in {time.time() - start:.0f} s", file=sys.stderr, flush=True)
+    flush()
     db.execute("COMMIT")
-    if letti == 0:
-        print("nessun luogo letto dal dump", file=sys.stderr)
+    if read == 0:
+        print("no places read from the dump", file=sys.stderr)
         return 1
-    print(f"  dump letto: {letti:,} luoghi in {time.time() - inizio:.0f} s, ora unisco e indicizzo",
+    print(f"  dump read: {read:,} places in {time.time() - start:.0f} s, now merging and indexing",
           file=sys.stderr, flush=True)
 
     db.executescript("""
-        CREATE TABLE unite(tipo TEXT, nome TEXT, alt TEXT, nn TEXT, comune TEXT, cn TEXT, cap TEXT, prov TEXT,
-                           regione TEXT, zona TEXT, lat REAL, lon REAL, o REAL, s REAL, e REAL, n REAL,
-                           imp REAL, pezzi INTEGER, classe TEXT);
-        -- le vie: un segmento OpenStreetMap per riga nel dump, qui una riga per via in ogni comune e CAP
-        INSERT INTO unite
-          SELECT 'via', min(nome), max(alt), nn, min(comune), cn, cap, max(prov), max(regione),
-                 CASE WHEN count(DISTINCT zona) = 1 THEN min(zona) ELSE '' END,
-                 avg(lat), avg(lon), min(o), min(s), max(e), max(n), max(imp), count(*), min(classe)
-          FROM grezzo WHERE tipo = 'via' AND nn <> '' GROUP BY nn, cn, cap;
-        INSERT INTO unite
-          SELECT tipo, nome, alt, nn, comune, cn, cap, prov, regione, zona, lat, lon, o, s, e, n, imp, 1, classe
-          FROM grezzo WHERE tipo <> 'via' AND nn <> '';
-        DROP TABLE grezzo;
-        CREATE INDEX unite_nome ON unite(nn, cn);
-        -- vie che esistono solo negli indirizzi dei civici (nessuna strada con quel nome nel comune)
-        INSERT INTO unite
-          SELECT 'via', min(strada), '', nn, min(comune), cn, min(cap), max(prov), max(regione), '',
-                 avg(lat), avg(lon), min(lon), min(lat), max(lon), max(lat), 0, count(*), 'indirizzo'
-          FROM civ_grezzo c
-          WHERE nn <> '' AND NOT EXISTS (SELECT 1 FROM unite v WHERE v.nn = c.nn AND v.cn = c.cn AND v.tipo = 'via')
-          GROUP BY nn, cn;
-        -- Le voci sono numerate dalla piu' importante alla meno importante: la ricerca legge le prime
-        -- che corrispondono e si ferma, senza dover ordinare tutti i risultati (conta sul Pi 3).
-        CREATE TABLE voci(id INTEGER PRIMARY KEY, tipo TEXT, nome TEXT, alt TEXT, nn TEXT, comune TEXT, cn TEXT,
-                          cap TEXT, prov TEXT, regione TEXT, zona TEXT, lat REAL, lon REAL,
-                          o REAL, s REAL, e REAL, n REAL, imp REAL, pezzi INTEGER, classe TEXT);
-        INSERT INTO voci(tipo, nome, alt, nn, comune, cn, cap, prov, regione, zona, lat, lon, o, s, e, n, imp, pezzi, classe)
-          SELECT * FROM unite ORDER BY imp DESC, pezzi DESC;
-        DROP TABLE unite;
-        CREATE INDEX voci_nome ON voci(nn);
-        CREATE INDEX voci_cap ON voci(cap);
-        CREATE TABLE civici(nn TEXT, numero TEXT, lat REAL, lon REAL, PRIMARY KEY(nn, numero, lat, lon)) WITHOUT ROWID;
-        INSERT OR IGNORE INTO civici SELECT nn, numero, lat, lon FROM civ_grezzo WHERE nn <> '' ORDER BY nn, numero;
-        DROP TABLE civ_grezzo;
-        -- "cella" e' un riquadro di mezzo grado (circa 50 km): serve a cercare vicino a un punto.
-        CREATE VIRTUAL TABLE testo USING fts5(nome, luogo, cella, content='',
-                                              tokenize="unicode61 remove_diacritics 2", prefix='2 3 4');
-        INSERT INTO testo(rowid, nome, luogo, cella)
-          SELECT id, nome || ' ' || alt, comune || ' ' || zona || ' ' || prov || ' ' || cap,
-                 'c' || CAST((lat + 90) * 2 AS INTEGER) || 'x' || CAST((lon + 180) * 2 AS INTEGER) FROM voci;
-        INSERT INTO testo(testo) VALUES('optimize');
+        CREATE TABLE merged(type TEXT, name TEXT, alt TEXT, name_norm TEXT, city TEXT, city_norm TEXT,
+                            postcode TEXT, province TEXT, region TEXT, district TEXT, lat REAL, lon REAL,
+                            west REAL, south REAL, east REAL, north REAL, importance REAL, segments INTEGER,
+                            class TEXT);
+        -- streets: one OpenStreetMap segment per line in the dump, here one row per street in each city and postcode
+        INSERT INTO merged
+          SELECT 'street', min(name), max(alt), name_norm, min(city), city_norm, postcode, max(province), max(region),
+                 CASE WHEN count(DISTINCT district) = 1 THEN min(district) ELSE '' END,
+                 avg(lat), avg(lon), min(west), min(south), max(east), max(north), max(importance), count(*), min(class)
+          FROM raw WHERE type = 'street' AND name_norm <> '' GROUP BY name_norm, city_norm, postcode;
+        INSERT INTO merged
+          SELECT type, name, alt, name_norm, city, city_norm, postcode, province, region, district, lat, lon,
+                 west, south, east, north, importance, 1, class
+          FROM raw WHERE type <> 'street' AND name_norm <> '';
+        DROP TABLE raw;
+        CREATE INDEX merged_name ON merged(name_norm, city_norm);
+        -- streets that exist only in the house-number addresses (no street with that name in the city)
+        INSERT INTO merged
+          SELECT 'street', min(street), '', street_norm, min(city), city_norm, min(postcode), max(province),
+                 max(region), '', avg(lat), avg(lon), min(lon), min(lat), max(lon), max(lat), 0, count(*), 'address'
+          FROM raw_numbers r
+          WHERE street_norm <> '' AND NOT EXISTS (SELECT 1 FROM merged m WHERE m.name_norm = r.street_norm
+                                                  AND m.city_norm = r.city_norm AND m.type = 'street')
+          GROUP BY street_norm, city_norm;
+        -- Entries are numbered from the most to the least important: a search reads the first matches and
+        -- stops, without sorting every result (this matters on a Pi 3).
+        CREATE TABLE entries(id INTEGER PRIMARY KEY, type TEXT, name TEXT, alt TEXT, name_norm TEXT, city TEXT,
+                             city_norm TEXT, postcode TEXT, province TEXT, region TEXT, district TEXT, lat REAL,
+                             lon REAL, west REAL, south REAL, east REAL, north REAL, importance REAL,
+                             segments INTEGER, class TEXT);
+        INSERT INTO entries(type, name, alt, name_norm, city, city_norm, postcode, province, region, district,
+                            lat, lon, west, south, east, north, importance, segments, class)
+          SELECT * FROM merged ORDER BY importance DESC, segments DESC;
+        DROP TABLE merged;
+        CREATE INDEX entries_name ON entries(name_norm);
+        CREATE INDEX entries_postcode ON entries(postcode);
+        CREATE TABLE house_numbers(street_norm TEXT, number TEXT, lat REAL, lon REAL,
+                                   PRIMARY KEY(street_norm, number, lat, lon)) WITHOUT ROWID;
+        INSERT OR IGNORE INTO house_numbers
+          SELECT street_norm, number, lat, lon FROM raw_numbers WHERE street_norm <> '' ORDER BY street_norm, number;
+        DROP TABLE raw_numbers;
     """)
-    conteggi = {
-        "vie": db.execute("SELECT count(*) FROM voci WHERE tipo = 'via'").fetchone()[0],
-        "luoghi": db.execute("SELECT count(*) FROM voci WHERE tipo <> 'via'").fetchone()[0],
-        "civici": db.execute("SELECT count(*) FROM civici").fetchone()[0],
+    for statement in [*FTS_STATEMENTS, FTS_OPTIMIZE]:
+        db.execute(statement)
+    counts = {
+        "streets": db.execute("SELECT count(*) FROM entries WHERE type = 'street'").fetchone()[0],
+        "places": db.execute("SELECT count(*) FROM entries WHERE type <> 'street'").fetchone()[0],
+        "house_numbers": db.execute("SELECT count(*) FROM house_numbers").fetchone()[0],
     }
     db.executemany("INSERT INTO meta VALUES (?, ?)", [
-        ("schema", str(SCHEMA)), ("dati", data_dati), ("creato", time.strftime("%Y-%m-%d %H:%M:%S")),
-        ("luoghi_letti", str(letti)), *((k, str(v)) for k, v in conteggi.items())])
+        ("schema", str(SCHEMA)), ("data_date", data_date), ("created", time.strftime("%Y-%m-%d %H:%M:%S")),
+        ("places_read", str(read)), *((k, str(v)) for k, v in counts.items())])
     db.execute("VACUUM")
     db.execute("PRAGMA journal_mode=DELETE")
     db.close()
-    print(f"  indice creato in {time.time() - inizio:.0f} s: {conteggi['vie']:,} vie, "
-          f"{conteggi['luoghi']:,} luoghi, {conteggi['civici']:,} civici", file=sys.stderr, flush=True)
+    print(f"  index built in {time.time() - start:.0f} s: {counts['streets']:,} streets, "
+          f"{counts['places']:,} places, {counts['house_numbers']:,} house numbers", file=sys.stderr, flush=True)
     return 0
 
 
-def apri_sola_lettura(percorso):
-    return sqlite3.connect(f"file:{percorso}?mode=ro", uri=True)
+def open_read_only(path):
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
 
-def verifica(percorso):
+def check(path):
     try:
-        db = apri_sola_lettura(percorso)
-        schema = db.execute("SELECT valore FROM meta WHERE chiave = 'schema'").fetchone()
-        vie = db.execute("SELECT count(*) FROM voci WHERE tipo = 'via'").fetchone()[0]
-        trovati = db.execute("SELECT count(*) FROM (SELECT rowid FROM testo WHERE testo MATCH ? LIMIT 5)",
-                             ('"roma"*',)).fetchone()[0]
-    except sqlite3.Error as errore:
-        print(f"indice non leggibile: {errore}", file=sys.stderr)
+        db = open_read_only(path)
+        schema = db.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
+        streets = db.execute("SELECT count(*) FROM entries WHERE type = 'street'").fetchone()[0]
+        found = db.execute("SELECT count(*) FROM (SELECT rowid FROM entries_fts WHERE entries_fts MATCH ? LIMIT 5)",
+                           ('"roma"*',)).fetchone()[0]
+    except sqlite3.Error as error:
+        print(f"index not readable: {error}", file=sys.stderr)
         return 1
-    if not schema or int(schema[0]) != SCHEMA or vie < 1000 or trovati == 0:
-        print(f"indice incompleto: schema {schema}, {vie} vie, {trovati} risultati di prova", file=sys.stderr)
+    if not schema or int(schema[0]) != SCHEMA or streets < 1000 or found == 0:
+        print(f"index incomplete: schema {schema}, {streets} streets, {found} test results", file=sys.stderr)
         return 1
     return 0
 
 
-def data(percorso):
-    riga = apri_sola_lettura(percorso).execute("SELECT valore FROM meta WHERE chiave = 'dati'").fetchone()
-    print(riga[0] if riga else "")
+def date(path):
+    row = open_read_only(path).execute("SELECT value FROM meta WHERE key = 'data_date'").fetchone()
+    print(row[0] if row else "")
     return 0
+
+
+# Schema 2 (raspberry-hub 1.x) used Italian table and column names. Renaming is cheap; only the
+# contentless full-text index has to be rebuilt (a few minutes on a Pi 3 instead of a full rebuild).
+SCHEMA_2_RENAMES = {
+    "voci": ("entries", {"tipo": "type", "nome": "name", "nn": "name_norm", "comune": "city", "cn": "city_norm",
+                         "cap": "postcode", "prov": "province", "regione": "region", "zona": "district",
+                         "o": "west", "s": "south", "e": "east", "n": "north", "imp": "importance",
+                         "pezzi": "segments", "classe": "class"}),
+    "civici": ("house_numbers", {"nn": "street_norm", "numero": "number"}),
+    "meta": ("meta", {"chiave": "key", "valore": "value"}),
+}
+SCHEMA_2_META_KEYS = {"dati": "data_date", "creato": "created", "luoghi_letti": "places_read", "vie": "streets",
+                      "luoghi": "places", "civici": "house_numbers"}
+
+
+def migrate(path):
+    db = sqlite3.connect(path, isolation_level=None)
+    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "entries" in tables:
+        print("  address index: already up to date")
+        return 0
+    if "voci" not in tables:
+        print("  address index: unknown layout, rebuild it with: sudo hub-update.sh addresses", file=sys.stderr)
+        return 1
+    start = time.time()
+    print("  address index: converting to the new layout (a few minutes on a Pi 3)", flush=True)
+    db.execute("BEGIN")
+    try:
+        for old_table, (new_table, columns) in SCHEMA_2_RENAMES.items():
+            for old_column, new_column in columns.items():
+                db.execute(f'ALTER TABLE "{old_table}" RENAME COLUMN "{old_column}" TO "{new_column}"')
+            if new_table != old_table:
+                db.execute(f'ALTER TABLE "{old_table}" RENAME TO "{new_table}"')
+        db.execute("UPDATE entries SET type = CASE type WHEN 'via' THEN 'street' WHEN 'luogo' THEN 'place' ELSE type END")
+        db.execute("UPDATE entries SET class = 'level=' || substr(class, 6) WHERE class LIKE 'tipo=%'")
+        db.execute("UPDATE entries SET class = 'address' WHERE class = 'indirizzo'")
+        for old_key, new_key in SCHEMA_2_META_KEYS.items():
+            db.execute("UPDATE meta SET key = ? WHERE key = ?", (new_key, old_key))
+        db.execute("UPDATE meta SET value = ? WHERE key = 'schema'", (str(SCHEMA),))
+        db.execute("DROP TABLE testo")
+        for statement in FTS_STATEMENTS:
+            db.execute(statement)
+        db.execute("COMMIT")
+    except sqlite3.Error as error:
+        db.execute("ROLLBACK")
+        print(f"  address index: conversion failed ({error}), nothing changed", file=sys.stderr)
+        return 1
+    db.execute(FTS_OPTIMIZE)
+    db.close()
+    print(f"  address index: converted in {time.time() - start:.0f} s")
+    return check(path)
 
 
 def main():
-    argomenti = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    gruppo = argomenti.add_mutually_exclusive_group(required=True)
-    gruppo.add_argument("--out", metavar="FILE", help="crea l'indice leggendo il dump da stdin")
-    gruppo.add_argument("--verifica", metavar="FILE", help="controlla che l'indice risponda")
-    gruppo.add_argument("--data", metavar="FILE", help="stampa la data dei dati")
-    scelta = argomenti.parse_args()
-    if scelta.out:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--out", metavar="FILE", help="build the index reading the dump from stdin")
+    group.add_argument("--check", metavar="FILE", help="check that the index answers")
+    group.add_argument("--date", metavar="FILE", help="print the date of the data")
+    group.add_argument("--migrate", metavar="FILE", help="convert an index built by raspberry-hub 1.x")
+    args = parser.parse_args()
+    if args.out:
         sys.stdin.reconfigure(encoding="utf-8", errors="replace")
-        return costruisci(scelta.out)
-    if scelta.verifica:
-        return verifica(scelta.verifica)
-    return data(scelta.data)
+        return build(args.out)
+    if args.check:
+        return check(args.check)
+    if args.migrate:
+        return migrate(args.migrate)
+    return date(args.date)
 
 
 if __name__ == "__main__":

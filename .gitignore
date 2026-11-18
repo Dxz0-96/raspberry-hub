@@ -1,12 +1,12 @@
-# Dati di questa casa: non vanno nella repo pubblica
+# Data about this home: never in the public repository
 deploy.local.ps1
-ca-di-casa.crt
+home-ca.crt
 *.crt
 *.pem
 *.key
 
-# Prodotti della compilazione
-pi/sito.tar.gz
+# Build output
+pi/site.tar.gz
 hub/node_modules/
 hub/.next/
 hub/out/
@@ -16,6 +16,10 @@ hub/*.tsbuildinfo
 hub/test-results/
 hub/playwright-report/
 
-# Sistema
+# Python
+__pycache__/
+*.pyc
+
+# System
 .DS_Store
 Thumbs.db

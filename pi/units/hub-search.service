@@ -1,0 +1,22 @@
+[Unit]
+Description=raspberry-hub: address search for the maps
+After=network.target
+# Maps switched off from the hub: stays off after a reboot too.
+ConditionPathExists=!/var/lib/hub-control/maps.off
+ConditionPathExists=/srv/hub/search/addresses.db
+
+[Service]
+DynamicUser=yes
+ExecStart=/usr/bin/python3 /usr/local/lib/raspberry-hub/hub-search.py
+Restart=on-failure
+RestartSec=10
+Nice=5
+MemoryMax=160M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

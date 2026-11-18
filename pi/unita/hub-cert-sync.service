@@ -1,6 +1,0 @@
-[Unit]
-Description=Hub di casa: passa a Caddy il certificato HTTPS di casa e lo ricarica
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/hub-cert-sync

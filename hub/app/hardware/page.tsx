@@ -1,25 +1,25 @@
-import type { Metadata } from "next";
-import { Andamento, Avvisi } from "@/components/Andamento";
-import { ReteESpazio } from "@/components/Diagrammi";
-import { PiePagina } from "@/components/PiePagina";
-import { Scheda } from "@/components/Scheda";
-import { Testata } from "@/components/Testata";
+import { Board } from "@/components/Board";
+import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
+import { NetworkAndStorage } from "@/components/NetworkAndStorage";
+import { HardwareAlerts, Trends } from "@/components/Trends";
+import { PageTitle } from "@/lib/i18n";
 
-export const metadata: Metadata = { title: "Hardware" };
 
 export default function Hardware() {
   return (
     <>
-      <Testata titolo="Hardware" indietro />
-      <main className="pagina">
-      <Avvisi />
-      <div className="hardware-scheda">
-        <Scheda verso="auto" />
-      </div>
-      <ReteESpazio />
-      <Andamento />
+      <PageTitle page="hardware" />
+      <Header title="Hardware" back />
+      <main className="page">
+        <HardwareAlerts />
+        <div className="hardware-board">
+          <Board orientation="auto" />
+        </div>
+        <NetworkAndStorage />
+        <Trends />
       </main>
-      <PiePagina />
+      <Footer />
     </>
   );
 }

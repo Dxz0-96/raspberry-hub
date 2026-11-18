@@ -1,0 +1,43 @@
+{
+  "services": [
+    {
+      "id": "pihole",
+      "name": "Pi-hole",
+      "description": "Ad blocking and home DNS",
+      "url": "/admin/",
+      "icon": "/icons/pihole.svg",
+      "type": "pihole"
+    },
+    {
+      "id": "wikipedia",
+      "name": "Wikipedia",
+      "description": "Offline encyclopedia",
+      "url": "/wikipedia/",
+      "icon": "/icons/wikipedia.svg",
+      "type": "unit",
+      "unit": "kiwix-hub.service",
+      "requires": "/srv/hub/zim/wikipedia_it.zim"
+    },
+    {
+      "id": "maps",
+      "name": "Maps",
+      "description": "Offline maps with address search",
+      "url": "/maps/",
+      "icon": "/icons/maps.svg",
+      "type": "unit",
+      "unit": "hub-search.service",
+      "requires": "/srv/hub/maps/basemap.pmtiles",
+      "optional": true,
+      "optional_detail": "address_search_off"
+    },
+    {
+      "id": "netmon",
+      "name": "Network monitor",
+      "description": "Home network checks every minute",
+      "url": "/netmon/",
+      "icon": "/icons/netmon.svg",
+      "type": "link",
+      "check": "tcp://127.0.0.1:8080"
+    }
+  ]
+}

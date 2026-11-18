@@ -1,0 +1,23 @@
+[Unit]
+Description=raspberry-hub: offline Wikipedia (kiwix-serve)
+After=network.target
+# Switched off from the hub: stays off after a reboot too, until it is switched back on.
+ConditionPathExists=!/var/lib/hub-control/wikipedia.off
+ConditionPathExists=/srv/hub/zim/wikipedia_it.zim
+
+[Service]
+DynamicUser=yes
+ExecStart=/usr/bin/kiwix-serve --address=127.0.0.1 --port=8081 --urlRootLocation=/wiki --threads=4 /srv/hub/zim/wikipedia_it.zim
+Restart=on-failure
+RestartSec=10
+Nice=5
+MemoryHigh=280M
+MemoryMax=420M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

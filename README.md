@@ -1,157 +1,249 @@
-# Hub di casa su `https://raspberry`
+# raspberry hub
 
-Una pagina da cui aprire i servizi del Raspberry (Pi-hole, Wikipedia offline, mappe offline dell'Italia,
-monitor di rete e quelli che aggiungi tu), accenderli e spegnerli, e vedere come sta l'hardware.
+[![CI](https://github.com/Dxz0-96/raspberry-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/Dxz0-96/raspberry-hub/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Conventional Commits](https://img.shields.io/badge/commits-conventional-blue.svg)](CONTRIBUTING.md#commit-messages)
 
-Provato su Raspberry Pi 3 Model B, Debian 13 a 64 bit, Pi-hole v6 (novembre 2026). Nessun Docker: sul Pi girano
-solo servizi di sistema. La rete predefinita di Docker (172.17.x.x) entra in conflitto con i router che
-inoltrano il DNS da quegli indirizzi.
+A home page for your Raspberry Pi at `https://raspberry`: open the services it runs (Pi-hole, offline
+Wikipedia, offline maps with address search, a network monitor and anything you add), switch them on and
+off, and see how the hardware is doing. Everything runs on the Raspberry Pi, without cloud services.
 
-### Requisiti
+![The hub on a desktop browser, light theme](docs/screenshots/home-light.png)
 
-- Raspberry Pi con Debian (o Raspberry Pi OS) a 64 bit e Pi-hole v6 già installato.
-- Il pacchetto `pi-setup` del Raspberry, **non incluso in questa repo**: crea la "CA di casa" e il certificato
-  (`pihole-cert.sh`), l'aggiornamento mensile (`monthly-update.sh`), i backup e il monitor di rete (`/netmon/`).
-  `hub-install.sh` si aspetta di stare in `~/pi-setup/hub` e salta i passi che lo richiedono se non lo trova.
-- Sul PC: Node.js 20 o più recente e PowerShell per `deploy.ps1`.
-
-## Come è fatto
-
-```
-https://raspberry  ->  Caddy (porte 80 e 443, certificato della "CA di casa")
-   /             sito dell'hub (Next.js compilato in statico)      /srv/hub/site
-   /mappe/       mappa (MapLibre) che legge /tiles/italia.pmtiles  /srv/hub/maps
-   /cerca        ricerca degli indirizzi   hub-search.py  127.0.0.1:8082   /srv/hub/search/indirizzi.db
-   /controllo/   stato, interruttori, monitor hardware   hub-control.py  127.0.0.1:8083
-   /wiki/        Wikipedia offline   kiwix-serve  127.0.0.1:8081   /srv/hub/zim
-   /admin /api /netmon   Pi-hole (il suo web ascolta solo su 127.0.0.1:8080)
-   /servizi.json /icone/   elenco dei servizi e loro immagini      /srv/hub/config, /srv/hub/icone
-```
-
-| Cartella | Contenuto |
-|---|---|
-| `hub/` | L'interfaccia: Next.js + React, compilata in un sito statico. Sul Pi non gira Node. |
-| `pi/` | Tutto ciò che va sul Raspberry: Caddyfile, servizi systemd, script. Sul Pi sta in `~/pi-setup/hub`. |
-| `deploy.ps1` | Ricompila l'hub e lo ripubblica sul Raspberry. |
-
-## Uso di tutti i giorni
-
-| Cosa | Come |
-|---|---|
-| Aprire l'hub | `https://raspberry/` (la prima volta su ogni dispositivo va importata la CA: vedi sotto) |
-| Accendere o spegnere Wikipedia, mappe, blocco pubblicità | Interruttore accanto al servizio; chiede utente e password |
-| Aggiungere un collegamento (NAS, router, stampante) | "Aggiungi servizio" nell'hub, con nome, indirizzo e immagine |
-| Aggiungere un servizio che gira sul Pi | Sul Pi: `sudo hub-servizio aggiungi` (pubblica sotto `https://raspberry/<percorso>/` e può dargli l'interruttore) |
-| Cambiare utente e password dell'hub | Sul Pi: `sudo hub-control-setpass`. Solo la password: dall'hub, menu dell'utente, "Cambia password" |
-| Aggiornare subito Wikipedia, mappe, indirizzi | Sul Pi: `sudo hub-update.sh` (oppure `wiki`, `mappe`, `indirizzi`) |
-| Controllare che tutto sia in piedi | Sul Pi: `sudo hub-verifica.sh` |
-| Cambiare variante di Wikipedia o zona delle mappe | `/etc/hub.conf`, poi `sudo hub-update.sh` |
-
-Wikipedia e mappe partono **spente**: si accendono dall'hub quando servono, e lo stato scelto resta anche dopo
-un riavvio. Con il blocco pubblicità in pausa, il monitor di rete lo segnala come guasto su Telegram dopo due minuti.
-
-## Credenziali
-
-| Cosa | Credenziali | Dove si cambiano |
+| Dark theme | Phone | Italian |
 |---|---|---|
-| Interruttori e "Aggiungi servizio" | Utente (`admin` se non lo cambi) e password scelti da te | `sudo hub-control-setpass` |
-| Dashboard di Pi-hole | La password di Pi-hole | `sudo pihole setpassword` |
-| Stato dei servizi, monitor hardware, Wikipedia, mappe | Nessuna | |
+| ![Dark theme](docs/screenshots/home-dark.png) | ![Phone](docs/screenshots/phone.png) | ![Italian interface](docs/screenshots/home-italian.png) |
 
-La password dell'hub sta in `/etc/hub-control/credenziali.json` solo come impronta scrypt. Dopo 5 tentativi
-sbagliati l'accesso si blocca per 5 minuti. Una volta entrati si resta dentro finché non si preme "Esci",
-anche dopo un riavvio del Raspberry: il cookie dura 400 giorni e si rinnova da solo una volta al giorno
-mentre si usa l'hub. Sul Raspberry restano solo le impronte delle sessioni (`/var/lib/hub-control/sessioni.json`);
-cambiare la password, dall'hub o con `sudo hub-control-setpass`, fa uscire tutti gli altri dispositivi.
+| Offline maps with address search | Offline Wikipedia | Hardware |
+|---|---|---|
+| ![Maps](docs/screenshots/maps.png) | ![Wikipedia](docs/screenshots/wikipedia.png) | ![Hardware](docs/screenshots/hardware.png) |
 
-## Certificato HTTPS
+Tested on a Raspberry Pi 3 Model B with 64-bit Debian 13 and Pi-hole v6 (November 2026). No Docker: only
+system services run on the Pi. (Docker's default network, 172.17.x.x, clashes with routers that forward
+DNS from those addresses.)
 
-Il certificato è emesso dalla "CA di casa" creata da `pihole-cert.sh` (pacchetto `pi-setup`), valida solo per
-`raspberry`, `pi.hole` e l'indirizzo IP del Raspberry. Va importata una volta su ogni dispositivo:
+## Features
 
-1. Scarica `http://raspberry/ca.crt`.
-2. Windows: doppio clic, Installa certificato, Computer locale, "Autorità di certificazione radice attendibili".
-3. Riavvia il browser.
+- **Services at a glance**: each one shows whether it is up, with live traffic pulses running from the board
+  to the services people are using.
+- **Switches**: Wikipedia, maps and ad blocking can be switched off and on from the hub; the choice survives reboots.
+- **Your own links**: add the NAS, the router or the printer from the hub, with a name and an icon.
+- **Hardware monitor**: CPU, temperature, memory, microSD, network and power drawn on a picture of the board,
+  with the last hour and the last 24 hours as charts, and alerts when something needs attention.
+- **DNS at home**: how a query travels from your devices through Pi-hole and Unbound, with real numbers.
+- **Offline maps** (Protomaps) with **address search** down to the house number, from OpenStreetMap data.
+- **Offline Wikipedia** (Kiwix) restyled to match the hub, in light and dark.
+- **English and Italian**, light and dark theme, usable on phones, keyboard and screen readers.
 
-Il rinnovo è automatico: `pihole-cert.sh` rinnova il certificato, `hub-cert-sync.path` lo passa a Caddy.
+## Requirements
 
-## Cosa succede da solo
+- A Raspberry Pi with 64-bit Debian (or Raspberry Pi OS) and Pi-hole v6 already installed.
+- The Raspberry Pi's `pi-setup` package, **not included in this repository**: it creates the "home CA" and the
+  certificate (`pihole-cert.sh`), the monthly update (`monthly-update.sh`), the backups and the network
+  monitor (`/netmon/`). `hub-install.sh` expects to live in `~/pi-setup/hub` and skips the steps that need
+  it if it cannot find it.
+- On the PC: Node.js 20 or newer, and PowerShell for `deploy.ps1`.
+- Disk space: about 30 GB for Wikipedia (full Italian edition), 5 GB for the maps of Italy, 1 GB for the
+  address index (6 GB free while it is built).
 
-| Quando | Cosa |
+## How it is built
+
+```
+https://raspberry  ->  Caddy (ports 80 and 443, certificate from the "home CA")
+   /             hub website (Next.js, static export)                /srv/hub/site
+   /maps/        map (MapLibre) reading /tiles/basemap.pmtiles       /srv/hub/maps
+   /search       address search   hub-search.py   127.0.0.1:8082     /srv/hub/search/addresses.db
+   /control/     status, switches, hardware monitor   hub-control.py   127.0.0.1:8083
+   /wiki/        offline Wikipedia   kiwix-serve   127.0.0.1:8081    /srv/hub/zim
+   /admin /api /netmon   Pi-hole (its web server listens only on 127.0.0.1:8080)
+   /services.json /icons/   list of services and their images     /srv/hub/config, /srv/hub/icons
+```
+
+| Folder | Content |
 |---|---|
-| All'avvio | Partono Caddy, il servizio di controllo e, se accesi, Wikipedia e la ricerca degli indirizzi |
-| Ogni 5 secondi | Il servizio di controllo campiona l'hardware (storico di 24 ore in memoria, nulla su disco) |
-| Domenica 04:30 | Controllo del certificato (pacchetto `pi-setup`) |
-| Il 1° del mese, 03:00 | Dopo sistema e Pi-hole: nuova edizione di Wikipedia se è uscita, mappe e indice degli indirizzi rifatti, poi riavvio |
+| `hub/` | The interface: Next.js + React, built into a static site. Node does not run on the Pi. |
+| `pi/` | Everything that goes on the Raspberry Pi: Caddyfile, systemd services, scripts. On the Pi it lives in `~/pi-setup/hub`. |
+| `deploy.ps1` | Builds the hub and publishes it on the Raspberry Pi; with `-Update` it also installs the `pi/` scripts. |
+| `docs/` | Screenshots used by this README (`npm run screenshots` in `hub/` refreshes them). |
 
-Wikipedia offline non ha aggiornamenti differenziali: ogni edizione è un file nuovo (circa 30 GB), scaricato
-solo quando esce. Mappe (4,7 GB) e indirizzi vengono rifatti se hanno più di 20 giorni.
+## Installation
 
-## Modificare l'interfaccia
+1. Clone this repository on your PC and set your Raspberry Pi address once in `deploy.local.ps1`
+   (ignored by git):
+
+   ```powershell
+   $DefaultPi = "pi@192.168.1.10"
+   $DefaultKey = "$env:USERPROFILE\.ssh\id_ed25519"
+   ```
+
+2. Build the site and copy everything to the Pi, then run the installer there:
+
+   ```powershell
+   .\deploy.ps1 -Update
+   ```
+
+   This builds the site, copies the `pi/` folder to `~/pi-setup/hub` and runs `sudo bash hub-install.sh`
+   (it asks for your sudo password on the Pi). The installer can also be run by hand, step by step:
+   `prepare`, `site`, `enable`, `monthly` (see the top of [`pi/hub-install.sh`](pi/hub-install.sh)).
+
+3. On the Pi, choose the username and password for the switches:
+
+   ```bash
+   sudo hub-control-setpass
+   ```
+
+4. Import the home CA on each device (see [HTTPS certificate](#https-certificate)) and open `https://raspberry/`.
+
+Wikipedia and maps start **switched off**: switch them on from the hub when you need them. Their content is
+downloaded by the monthly update, or right away with `sudo hub-update.sh`.
+
+## Updating
+
+After pulling a new version on the PC:
+
+```powershell
+.\deploy.ps1 -Update
+```
+
+That is the same command as the installation: `hub-install.sh` is safe to run again, keeps your settings,
+added services, switch states and downloaded content, and upgrades older installations in place
+(`pi/hub-migrate.py` moves and converts files whose names or format changed; it does nothing when there is
+nothing to migrate). Interface-only changes can be published faster with `.\deploy.ps1`, which copies just
+the website.
+
+> **Upgrading from 1.x** (the Italian-named version): run `.\deploy.ps1 -Update` once. Files, settings,
+> the address index and the old URLs are converted automatically; bookmarks to `/mappe/` keep working.
+> Devices that were logged in have to log in once more. See [CHANGELOG.md](CHANGELOG.md).
+
+## Everyday use
+
+| What | How |
+|---|---|
+| Open the hub | `https://raspberry/` (import the CA on each device the first time: see below) |
+| Switch Wikipedia, maps or ad blocking on or off | The switch next to the service; it asks for username and password |
+| Add a link (NAS, router, printer) | "Add service" in the hub, with name, address and image |
+| Add a service that runs on the Pi | On the Pi: `sudo hub-service add` (publishes it under `https://raspberry/<path>/` and can give it a switch) |
+| Change the hub username and password | On the Pi: `sudo hub-control-setpass`. Password only: from the hub, user menu, "Change password" |
+| Update Wikipedia, maps, addresses now | On the Pi: `sudo hub-update.sh` (or `wiki`, `maps`, `addresses`) |
+| Check that everything is up | On the Pi: `sudo hub-check.sh` |
+| Change the Wikipedia variant or the map area | `/etc/hub.conf`, then `sudo hub-update.sh` |
+| Change the language | `EN` / `IT` in the header |
+
+With ad blocking paused, the network monitor reports it as a fault on Telegram after two minutes.
+
+### Language
+
+The hub speaks English and Italian. On a device's first visit it uses the first of the two found in the
+browser's preferred languages (English if neither is there). The `EN` / `IT` buttons in the header change it,
+and the choice is remembered on that device, like the theme. The labels printed on the board drawing stay in
+English in both languages, like a real silkscreen.
+
+## Credentials
+
+| What | Credentials | Where to change them |
+|---|---|---|
+| Switches and "Add service" | Username (`admin` unless you change it) and a password you choose | `sudo hub-control-setpass` |
+| Pi-hole dashboard | The Pi-hole password | `sudo pihole setpassword` |
+| Service status, hardware monitor, Wikipedia, maps | None | |
+
+The hub password is stored in `/etc/hub-control/credentials.json` only as an scrypt hash. After 5 wrong
+attempts the login is locked for 5 minutes. Once logged in you stay logged in until "Log out", even after a
+reboot of the Raspberry Pi: the cookie lasts 400 days and renews itself once a day while the hub is in use.
+Only the hashes of the sessions are kept on the Pi (`/var/lib/hub-control/sessions.json`); changing the
+password, from the hub or with `sudo hub-control-setpass`, logs out every other device.
+
+## HTTPS certificate
+
+The certificate is issued by the "home CA" created by `pihole-cert.sh` (`pi-setup` package), valid only for
+`raspberry`, `pi.hole` and the IP address of the Raspberry Pi. Import the CA once on each device:
+
+1. Download `http://raspberry/ca.crt` (also linked in the footer of the hub).
+2. Windows: double-click, Install certificate, Local machine, "Trusted Root Certification Authorities".
+3. Restart the browser.
+
+Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync.path` hands it to Caddy.
+
+## What happens by itself
+
+| When | What |
+|---|---|
+| At boot | Caddy, the control service and, if switched on, Wikipedia and address search start |
+| Every 5 seconds | The control service samples the hardware (24 hours of history in memory, nothing on disk) |
+| Sunday 04:30 | Certificate check (`pi-setup` package) |
+| 1st of the month, 03:00 | After the system and Pi-hole: new Wikipedia edition if one came out, maps and address index rebuilt, then reboot |
+
+Offline Wikipedia has no incremental updates: each edition is a new file (about 30 GB), downloaded only when
+it comes out. Maps (4.7 GB) and addresses are rebuilt when they are more than 20 days old.
+
+## Development
 
 ```
 cd hub
 npm install
-npm run assets          # caratteri e icone della mappa, una volta
+npm run assets          # map fonts and icons, once
 npm run build
-npm run mock            # finto Raspberry su http://localhost:8790 (accesso di prova: admin / prova1234)
+npm run mock            # mock Raspberry Pi on http://localhost:8790 (test login: admin / test1234)
 ```
 
-Per provare mappa e ricerca con i dati veri del Raspberry: apri un tunnel con
-`ssh -N -L 8443:127.0.0.1:443 utente@indirizzo-del-raspberry`, metti il certificato della CA di casa in
-`ca-di-casa.crt` nella cartella principale (escluso da git), poi lancia `node dev/mock-pi.mjs` e apri
-`http://localhost:8791/mappe/`. Le mappe devono essere accese. Nel tunnel il primo caricamento è più lento
-che in casa: collegandosi direttamente al Raspberry ogni pezzo di mappa arriva in 50-150 ms.
+To try the map and search with the real data of the Raspberry Pi: open a tunnel with
+`ssh -N -L 8443:127.0.0.1:443 user@raspberry-address`, put the home CA certificate in `home-ca.crt` in the
+repository root (ignored by git), then run `node dev/mock-pi.mjs` and open `http://localhost:8791/maps/`.
+The maps must be switched on. Through the tunnel the first load is slower than at home: connected directly
+to the Raspberry Pi each map tile arrives in 50-150 ms.
 
-La pagina delle mappe tiene la posizione nell'indirizzo (`/mappe/#posizione=zoom/lat/lon`): ricaricando
-non si perde, e un indirizzo così si può salvare tra i preferiti.
+The maps page keeps the position in the address (`/maps/#position=zoom/lat/lon`): reloading keeps it, and
+such an address can be saved as a bookmark.
 
-Poi, per pubblicare: `.\deploy.ps1`. Utente, indirizzo del Raspberry e chiave SSH si passano con
-`-Pi utente@indirizzo -Chiave percorso`, oppure si scrivono una volta in `deploy.local.ps1` (escluso da git):
+All interface text lives in [`hub/lib/messages/en.ts`](hub/lib/messages/en.ts) and
+[`hub/lib/messages/it.ts`](hub/lib/messages/it.ts); TypeScript checks that the two have the same keys.
+The list of services is not in the code: on the Pi it is `/srv/hub/config/services.json`.
 
-```powershell
-$PiPredefinito = "pi@192.168.1.10"
-$ChiavePredefinita = "$env:USERPROFILE\.ssh\id_ed25519"
-```
+## Tests
 
-## Test
-
-Test end-to-end con Playwright su mappe e Wikipedia, sul computer e su un telefono simulato. Girano sul sito
-compilato servito dal finto Raspberry, con una piccola mappa del centro di Roma (`hub/tests/fixtures/roma.pmtiles`,
-dati OpenStreetMap) e una Wikipedia finta (`hub/dev/finta-wikipedia.mjs`): non serve il Raspberry.
-
-```
-cd hub
-npx playwright install chromium     # una volta
-npm run test:tutto                  # compila e lancia i test (npm test se il sito è già compilato)
-```
-
-L'elenco dei servizi non è nel codice: sta sul Pi in `/srv/hub/config/servizi.json`.
-
-## Se qualcosa non va
-
-| Sintomo | Controllo |
+| Command | What it checks |
 |---|---|
-| L'hub non si apre | Sul Pi: `systemctl status caddy`; `sudo hub-verifica.sh` |
-| Avviso del browser sul certificato | Importa `http://raspberry/ca.crt` sul dispositivo |
-| "Servizio spento o non risponde" | Accendilo dall'hub; se era acceso, `systemctl status kiwix-hub hub-search` |
-| Lo stato dei servizi non arriva | `systemctl status hub-control` |
-| La ricerca degli indirizzi non risponde | L'indice c'è? `ls -la /srv/hub/search`; rifarlo: `sudo hub-update.sh indirizzi` |
-| A volte `raspberry` non risponde | Il router ha due indirizzi per quel nome: togli dal router il vecchio dispositivo chiamato `raspberry` |
+| `npm run typecheck` (in `hub/`) | TypeScript |
+| `npm run smoke` (in `hub/`, after a build) | Every page and API of the built site answers, served by the mock Raspberry Pi |
+| `npx playwright test` (in `hub/`) | End-to-end: home, switches and login, maps, Wikipedia, English and Italian, on desktop and on a simulated phone |
+| `python3 -m unittest discover -s pi/tests` | Pi scripts: address index and search, upgrade from 1.x, `hub-control` API |
 
-### Tornare indietro
+The Playwright tests run on the built site with a small map of central Rome
+(`hub/tests/fixtures/rome.pmtiles`, OpenStreetMap data) and a fake Wikipedia (`hub/dev/fake-wikipedia.mjs`):
+no Raspberry Pi needed. Install the browser once with `npx playwright install chromium`; `npm run test:all`
+builds and tests in one go. GitHub Actions runs all of the above, plus ShellCheck and the commit convention,
+on every pull request.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| The hub does not open | On the Pi: `systemctl status caddy`; `sudo hub-check.sh` |
+| Browser warning about the certificate | Import `http://raspberry/ca.crt` on the device |
+| "This service is off or not responding" | Switch it on from the hub; if it was on, `systemctl status kiwix-hub hub-search` |
+| Service status does not arrive | `systemctl status hub-control` |
+| Address search does not answer | Is the index there? `ls -la /srv/hub/search`; rebuild it: `sudo hub-update.sh addresses` |
+| `raspberry` sometimes does not answer | The router has two addresses for that name: remove the old device called `raspberry` from the router |
+
+### Rolling back
 
 ```
 cd ~/pi-setup/hub
-sudo bash hub-install.sh disattiva      # Pi-hole di nuovo sulle porte 80/443, Caddy fermo
+sudo bash hub-install.sh disable        # Pi-hole back on ports 80/443, Caddy stopped
 sudo systemctl disable --now kiwix-hub hub-search hub-control hub-cert-sync.path
 sudo cp /usr/local/sbin/monthly-update.sh.bak /usr/local/sbin/monthly-update.sh
-sudo rm -rf /srv/hub                    # solo se vuoi liberare anche lo spazio dei contenuti
+sudo rm -rf /srv/hub                    # only if you also want to free the space used by the content
 ```
 
-## Dati e licenze
+## Contributing
 
-Codice: licenza MIT, vedi `LICENSE`.
+Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) (setup, tests, commit messages) and the
+[Code of Conduct](CODE_OF_CONDUCT.md). Security problems: see [SECURITY.md](SECURITY.md). Notes for AI
+coding agents are in [AGENTS.md](AGENTS.md).
 
-Mappe e indirizzi: © OpenStreetMap, licenza ODbL, tramite Protomaps e il dump Photon/Nominatim di GraphHopper.
-Wikipedia offline: Kiwix. Caratteri: IBM Plex (SIL Open Font License) e Noto Sans per le etichette della mappa.
+## Data and licenses
+
+Code: MIT license, see [LICENSE](LICENSE).
+
+Maps and addresses: © OpenStreetMap contributors, ODbL license, through Protomaps and the Photon/Nominatim
+dump by GraphHopper. Offline Wikipedia: Kiwix, text under CC BY-SA 4.0. Fonts: IBM Plex (SIL Open Font
+License) and Noto Sans for the map labels.

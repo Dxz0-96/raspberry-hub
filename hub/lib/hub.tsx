@@ -1,6 +1,6 @@
 "use client";
 
-// Lo stato dell'hub: servizi, sessione, misure dell'hardware. Un solo punto che parla con il Raspberry.
+// The state of the hub: services, session, hardware readings. The one place that talks to the Raspberry Pi.
 
 import {
   createContext,
@@ -12,301 +12,314 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { Messages } from "./messages/en";
 import type {
-  CampiServizio,
-  Contenuti,
+  ContentStatus,
   Dns,
-  RispostaStato,
-  Servizio,
-  Sistema,
-  StatoVivo,
-  Storico,
-} from "./tipi";
+  History,
+  LiveState,
+  Service,
+  ServiceFields,
+  StatusResponse,
+  SystemInfo,
+} from "./types";
 
-/** Vuoto in produzione (stessa origine). In sviluppo punta al finto Raspberry: vedi dev/mock-server.mjs. */
+/** Empty in production (same origin). In development it points to the mock Raspberry Pi: see dev/mock-server.mjs. */
 export const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
-export class ErroreApi extends Error {
+export class ApiError extends Error {
   constructor(
-    public stato: number,
-    public sigla: string,
-    messaggio: string,
-    public dati: Record<string, unknown> = {},
+    public status: number,
+    /** Machine-readable code from hub-control.py ("bad_credentials", ...); "network" when nothing answered */
+    public code: string,
+    message: string,
+    public data: Record<string, unknown> = {},
   ) {
-    super(messaggio);
+    super(message);
   }
 }
 
-export async function api<T>(percorso: string, opzioni: { metodo?: string; corpo?: unknown } = {}): Promise<T> {
-  const scrive = opzioni.metodo !== undefined && opzioni.metodo !== "GET";
-  let risposta: Response;
+/** The message to show for a failed request, in the page language. */
+export function errorMessage(t: Messages, problem: unknown, fallback: string): string {
+  if (problem instanceof ApiError) {
+    if (problem.code === "network") return t.common.piUnreachable;
+    if (problem.code === "login_required") return t.common.sessionExpired;
+    if (problem.code === "unavailable") return t.common.serviceUnavailable;
+    return t.apiErrors[problem.code] ?? (problem.message || fallback);
+  }
+  return fallback;
+}
+
+export async function api<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  const writes = options.method !== undefined && options.method !== "GET";
+  let response: Response;
   try {
-    risposta = await fetch(BASE + percorso, {
-      method: opzioni.metodo ?? "GET",
+    response = await fetch(BASE + path, {
+      method: options.method ?? "GET",
       credentials: BASE ? "include" : "same-origin",
       cache: "no-store",
-      headers: scrive ? { "Content-Type": "application/json", "X-Hub": "1" } : undefined,
-      body: scrive ? JSON.stringify(opzioni.corpo ?? {}) : undefined,
+      headers: writes ? { "Content-Type": "application/json", "X-Hub": "1" } : undefined,
+      body: writes ? JSON.stringify(options.body ?? {}) : undefined,
     });
   } catch {
-    throw new ErroreApi(0, "rete", "Il Raspberry non risponde. Controlla di essere collegato alla rete di casa.");
+    throw new ApiError(0, "network", "The Raspberry Pi is not responding.");
   }
-  let dati: Record<string, unknown> | null = null;
+  let data: Record<string, unknown> | null = null;
   try {
-    dati = await risposta.json();
+    data = await response.json();
   } catch {
-    dati = null;
+    data = null;
   }
-  if (!risposta.ok) {
-    throw new ErroreApi(
-      risposta.status,
-      typeof dati?.errore === "string" ? dati.errore : "errore",
-      typeof dati?.messaggio === "string" ? dati.messaggio : "Il servizio è spento o non risponde. Riprova tra poco.",
-      dati ?? {},
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      typeof data?.error === "string" ? data.error : "unavailable",
+      typeof data?.message === "string" ? data.message : "",
+      data ?? {},
     );
   }
-  return dati as T;
+  return data as T;
 }
 
-/** Ripete una lettura a intervalli, ma solo mentre la scheda del browser è visibile. */
-export function useLetturaPeriodica(leggi: () => void, millisecondi: number) {
-  const ultima = useRef(leggi);
+/** Repeats a read at an interval, but only while the browser tab is visible. */
+export function usePolling(read: () => void, milliseconds: number) {
+  const latest = useRef(read);
   useEffect(() => {
-    ultima.current = leggi;
+    latest.current = read;
   });
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
-    const avvia = () => {
-      ultima.current();
-      timer = setInterval(() => ultima.current(), millisecondi);
+    const start = () => {
+      latest.current();
+      timer = setInterval(() => latest.current(), milliseconds);
     };
-    const ferma = () => {
+    const stop = () => {
       if (timer) clearInterval(timer);
       timer = undefined;
     };
-    const visibilita = () => {
-      if (document.hidden) ferma();
-      else if (!timer) avvia();
+    const visibility = () => {
+      if (document.hidden) stop();
+      else if (!timer) start();
     };
-    visibilita();
-    document.addEventListener("visibilitychange", visibilita);
+    visibility();
+    document.addEventListener("visibilitychange", visibility);
     return () => {
-      ferma();
-      document.removeEventListener("visibilitychange", visibilita);
+      stop();
+      document.removeEventListener("visibilitychange", visibility);
     };
-  }, [millisecondi]);
+  }, [milliseconds]);
 }
 
-export interface Avviso {
-  testo: string;
-  tono: "errore" | "fatto";
+export interface Toast {
+  /** Written when shown, so it follows a language change */
+  text: (t: Messages) => string;
+  tone: "error" | "done";
 }
 
 interface Hub {
-  servizi: Servizio[] | null;
-  stati: Record<string, StatoVivo> | null;
+  services: Service[] | null;
+  states: Record<string, LiveState> | null;
   dns: Dns | null;
-  contenuti: Contenuti | null;
-  sistema: Sistema | null;
-  storico: Storico | null;
-  autenticato: boolean;
-  utente: string | null;
-  configurato: boolean;
-  /** id dei servizi il cui interruttore sta lavorando */
-  inCorso: Record<string, boolean>;
-  avviso: Avviso | null;
-  chiudiAvviso: () => void;
-  /** Finestra di accesso: aperta finché non è null */
-  accessoAperto: boolean;
-  apriAccesso: (poi?: () => void) => void;
-  chiudiAccesso: () => void;
-  accedi: (utente: string, password: string) => Promise<void>;
-  esci: () => Promise<void>;
-  cambiaPassword: (attuale: string, nuova: string) => Promise<void>;
-  comanda: (id: string, acceso: boolean) => Promise<void>;
-  salvaServizio: (campi: CampiServizio, id?: string) => Promise<void>;
-  rimuoviServizio: (id: string) => Promise<void>;
+  content: ContentStatus | null;
+  system: SystemInfo | null;
+  history: History | null;
+  authenticated: boolean;
+  user: string | null;
+  configured: boolean;
+  /** ids of the services whose switch is working */
+  busy: Record<string, boolean>;
+  toast: Toast | null;
+  closeToast: () => void;
+  loginOpen: boolean;
+  openLogin: (then?: () => void) => void;
+  closeLogin: () => void;
+  logIn: (username: string, password: string) => Promise<void>;
+  logOut: () => Promise<void>;
+  changePassword: (current: string, next: string) => Promise<void>;
+  setSwitch: (id: string, on: boolean) => Promise<void>;
+  saveService: (fields: ServiceFields, id?: string) => Promise<void>;
+  removeService: (id: string) => Promise<void>;
 }
 
-const Contesto = createContext<Hub | null>(null);
+const Context = createContext<Hub | null>(null);
 
 export function useHub(): Hub {
-  const hub = useContext(Contesto);
-  if (!hub) throw new Error("useHub va usato dentro <FornitoreHub>");
+  const hub = useContext(Context);
+  if (!hub) throw new Error("useHub must be used inside <HubProvider>");
   return hub;
 }
 
-export function FornitoreHub({ children }: { children: ReactNode }) {
-  const [servizi, setServizi] = useState<Servizio[] | null>(null);
-  const [stato, setStato] = useState<RispostaStato | null>(null);
-  const [contenuti, setContenuti] = useState<Contenuti | null>(null);
-  const [sistema, setSistema] = useState<Sistema | null>(null);
-  const [storico, setStorico] = useState<Storico | null>(null);
-  const [inCorso, setInCorso] = useState<Record<string, boolean>>({});
-  const [avviso, setAvviso] = useState<Avviso | null>(null);
-  const [accessoAperto, setAccessoAperto] = useState(false);
-  const dopoAccesso = useRef<(() => void) | undefined>(undefined);
+export function HubProvider({ children }: { children: ReactNode }) {
+  const [services, setServices] = useState<Service[] | null>(null);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [content, setContent] = useState<ContentStatus | null>(null);
+  const [system, setSystem] = useState<SystemInfo | null>(null);
+  const [history, setHistory] = useState<History | null>(null);
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const afterLogin = useRef<(() => void) | undefined>(undefined);
 
-  const leggiServizi = useCallback(async () => {
+  const readServices = useCallback(async () => {
     try {
-      const dati = await api<{ servizi: Servizio[] }>("/servizi.json");
-      setServizi(Array.isArray(dati.servizi) ? dati.servizi : []);
+      const data = await api<{ services: Service[] }>("/services.json");
+      setServices(Array.isArray(data.services) ? data.services : []);
     } catch {
-      setServizi((prima) => prima ?? []);
+      setServices((before) => before ?? []);
     }
   }, []);
 
-  const leggiStato = useCallback(async () => {
+  const readStatus = useCallback(async () => {
     try {
-      setStato(await api<RispostaStato>("/controllo/stato"));
+      setStatus(await api<StatusResponse>("/control/status"));
     } catch {
-      setStato(null);
+      setStatus(null);
     }
   }, []);
 
-  useLetturaPeriodica(() => {
-    void leggiStato();
-    api<Sistema>("/controllo/sistema")
-      .then((dati) => setSistema(dati.cpu ? dati : null))
-      .catch(() => setSistema(null));
+  usePolling(() => {
+    void readStatus();
+    api<SystemInfo>("/control/system")
+      .then((data) => setSystem(data.cpu ? data : null))
+      .catch(() => setSystem(null));
   }, 5000);
 
-  useLetturaPeriodica(() => {
-    void leggiServizi();
-    api<Contenuti>("/status.json").then(setContenuti).catch(() => setContenuti(null));
-    api<Storico>("/controllo/sistema/storico").then(setStorico).catch(() => setStorico(null));
+  usePolling(() => {
+    void readServices();
+    api<ContentStatus>("/status.json").then(setContent).catch(() => setContent(null));
+    api<History>("/control/system/history").then(setHistory).catch(() => setHistory(null));
   }, 60000);
 
   useEffect(() => {
-    if (!avviso) return;
-    const timer = setTimeout(() => setAvviso(null), avviso.tono === "errore" ? 9000 : 4000);
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), toast.tone === "error" ? 9000 : 4000);
     return () => clearTimeout(timer);
-  }, [avviso]);
+  }, [toast]);
 
-  const apriAccesso = useCallback((poi?: () => void) => {
-    dopoAccesso.current = poi;
-    setAccessoAperto(true);
+  const openLogin = useCallback((then?: () => void) => {
+    afterLogin.current = then;
+    setLoginOpen(true);
   }, []);
 
-  const chiudiAccesso = useCallback(() => {
-    dopoAccesso.current = undefined;
-    setAccessoAperto(false);
+  const closeLogin = useCallback(() => {
+    afterLogin.current = undefined;
+    setLoginOpen(false);
   }, []);
 
-  const accedi = useCallback(
-    async (utente: string, password: string) => {
-      await api("/controllo/accesso", { metodo: "POST", corpo: { utente, password } });
-      await leggiStato();
-      const poi = dopoAccesso.current;
-      dopoAccesso.current = undefined;
-      setAccessoAperto(false);
-      poi?.();
+  const logIn = useCallback(
+    async (username: string, password: string) => {
+      await api("/control/login", { method: "POST", body: { username, password } });
+      await readStatus();
+      const then = afterLogin.current;
+      afterLogin.current = undefined;
+      setLoginOpen(false);
+      then?.();
     },
-    [leggiStato],
+    [readStatus],
   );
 
-  const esci = useCallback(async () => {
+  const logOut = useCallback(async () => {
     try {
-      await api("/controllo/uscita", { metodo: "POST" });
+      await api("/control/logout", { method: "POST" });
     } finally {
-      await leggiStato();
+      await readStatus();
     }
-  }, [leggiStato]);
+  }, [readStatus]);
 
-  /** Esegue un'azione riservata; se la sessione manca o è scaduta apre l'accesso e poi riprova. */
-  const riservata = useCallback(
-    async <T,>(azione: () => Promise<T>, riprova: () => void): Promise<T | undefined> => {
+  /** Runs a protected action; if the session is missing or expired it opens the login and then retries. */
+  const protectedAction = useCallback(
+    async <T,>(action: () => Promise<T>, retry: () => void): Promise<T | undefined> => {
       try {
-        return await azione();
-      } catch (errore) {
-        if (errore instanceof ErroreApi && errore.stato === 401) {
-          await leggiStato();
-          apriAccesso(riprova);
+        return await action();
+      } catch (problem) {
+        if (problem instanceof ApiError && problem.status === 401) {
+          await readStatus();
+          openLogin(retry);
           return undefined;
         }
-        throw errore;
+        throw problem;
       }
     },
-    [apriAccesso, leggiStato],
+    [openLogin, readStatus],
   );
 
-  const comanda = useCallback(
-    async (id: string, acceso: boolean) => {
-      setInCorso((prima) => ({ ...prima, [id]: true }));
+  const setSwitch = useCallback(
+    async (id: string, on: boolean) => {
+      setBusy((before) => ({ ...before, [id]: true }));
       try {
-        const risposta = await riservata(
+        const response = await protectedAction(
           () =>
-            api<{ servizi: Record<string, StatoVivo> }>(`/controllo/servizi/${id}/interruttore`, {
-              metodo: "POST",
-              corpo: { acceso },
+            api<{ services: Record<string, LiveState> }>(`/control/services/${id}/switch`, {
+              method: "POST",
+              body: { on },
             }),
-          () => void comanda(id, acceso),
+          () => void setSwitch(id, on),
         );
-        if (risposta?.servizi) {
-          setStato((prima) => (prima ? { ...prima, servizi: risposta.servizi } : prima));
+        if (response?.services) {
+          setStatus((before) => (before ? { ...before, services: response.services } : before));
         }
-      } catch (errore) {
-        setAvviso({ testo: errore instanceof Error ? errore.message : "Comando non riuscito.", tono: "errore" });
-        void leggiStato();
+      } catch (problem) {
+        setToast({ text: (t) => errorMessage(t, problem, t.services.switchFailed), tone: "error" });
+        void readStatus();
       } finally {
-        setInCorso((prima) => ({ ...prima, [id]: false }));
+        setBusy((before) => ({ ...before, [id]: false }));
       }
     },
-    [riservata, leggiStato],
+    [protectedAction, readStatus],
   );
 
-  const salvaServizio = useCallback(
-    async (campi: CampiServizio, id?: string) => {
-      await api(id ? `/controllo/servizi/${id}` : "/controllo/servizi", { metodo: "POST", corpo: campi });
-      await Promise.all([leggiServizi(), leggiStato()]);
-      setAvviso({ testo: id ? "Servizio modificato" : "Servizio aggiunto", tono: "fatto" });
+  const saveService = useCallback(
+    async (fields: ServiceFields, id?: string) => {
+      await api(id ? `/control/services/${id}` : "/control/services", { method: "POST", body: fields });
+      await Promise.all([readServices(), readStatus()]);
+      setToast({ text: (t) => (id ? t.services.edited : t.services.added), tone: "done" });
     },
-    [leggiServizi, leggiStato],
+    [readServices, readStatus],
   );
 
-  const rimuoviServizio = useCallback(
+  const removeService = useCallback(
     async (id: string) => {
-      await api(`/controllo/servizi/${id}`, { metodo: "DELETE" });
-      await Promise.all([leggiServizi(), leggiStato()]);
-      setAvviso({ testo: "Servizio rimosso", tono: "fatto" });
+      await api(`/control/services/${id}`, { method: "DELETE" });
+      await Promise.all([readServices(), readStatus()]);
+      setToast({ text: (t) => t.services.removed, tone: "done" });
     },
-    [leggiServizi, leggiStato],
+    [readServices, readStatus],
   );
 
-  const cambiaPassword = useCallback(async (attuale: string, nuova: string) => {
-    await api("/controllo/password", { metodo: "POST", corpo: { attuale, nuova } });
-    setAvviso({ testo: "Password cambiata", tono: "fatto" });
+  const changePassword = useCallback(async (current: string, next: string) => {
+    await api("/control/password", { method: "POST", body: { current, new: next } });
+    setToast({ text: (t) => t.password.changed, tone: "done" });
   }, []);
 
-  const valore = useMemo<Hub>(
+  const value = useMemo<Hub>(
     () => ({
-      servizi,
-      stati: stato?.servizi ?? null,
-      dns: stato?.dns ?? null,
-      contenuti,
-      sistema,
-      storico,
-      autenticato: stato?.autenticato ?? false,
-      utente: stato?.utente ?? null,
-      configurato: stato?.configurato ?? true,
-      inCorso,
-      avviso,
-      chiudiAvviso: () => setAvviso(null),
-      accessoAperto,
-      apriAccesso,
-      chiudiAccesso,
-      accedi,
-      esci,
-      cambiaPassword,
-      comanda,
-      salvaServizio,
-      rimuoviServizio,
+      services,
+      states: status?.services ?? null,
+      dns: status?.dns ?? null,
+      content,
+      system,
+      history,
+      authenticated: status?.authenticated ?? false,
+      user: status?.user ?? null,
+      configured: status?.configured ?? true,
+      busy,
+      toast,
+      closeToast: () => setToast(null),
+      loginOpen,
+      openLogin,
+      closeLogin,
+      logIn,
+      logOut,
+      changePassword,
+      setSwitch,
+      saveService,
+      removeService,
     }),
     [
-      servizi, stato, contenuti, sistema, storico, inCorso, avviso, accessoAperto,
-      apriAccesso, chiudiAccesso, accedi, esci, cambiaPassword, comanda, salvaServizio, rimuoviServizio,
+      services, status, content, system, history, busy, toast, loginOpen,
+      openLogin, closeLogin, logIn, logOut, changePassword, setSwitch, saveService, removeService,
     ],
   );
 
-  return <Contesto.Provider value={valore}>{children}</Contesto.Provider>;
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }

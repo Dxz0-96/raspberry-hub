@@ -1,7 +1,7 @@
-# Hub di casa: Caddy riceve tutto il traffico web del Raspberry (porte 80 e 443) e lo smista.
-# Il certificato e' quello della "CA di casa" emesso da pihole-cert.sh; hub-cert-sync lo copia qui
-# e ricarica Caddy a ogni rinnovo. Dopo una modifica: sudo caddy validate --config /etc/caddy/Caddyfile
-# e poi sudo systemctl reload caddy.
+# raspberry-hub: Caddy receives all the web traffic of the Raspberry Pi (ports 80 and 443) and routes it.
+# The certificate is the one from the "home CA" issued by pihole-cert.sh; hub-cert-sync copies it here
+# and reloads Caddy at every renewal. After a change: sudo caddy validate --config /etc/caddy/Caddyfile
+# and then sudo systemctl reload caddy.
 {
 	auto_https disable_redirects
 	servers {
@@ -9,16 +9,16 @@
 	}
 }
 
-# ---------------------------------------------------------------- HTTP: solo CA e rinvio a HTTPS
+# ---------------------------------------------------------------- HTTP: only the CA and the redirect to HTTPS
 :80 {
 	handle /ca.crt {
-		root * /etc/caddy/pubblico
+		root * /etc/caddy/public
 		header Content-Type application/x-x509-ca-cert
-		header Content-Disposition "attachment; filename=\"ca-di-casa.crt\""
+		header Content-Disposition "attachment; filename=\"home-ca.crt\""
 		file_server
 	}
-	@stesso host pi.hole @IP_RASPBERRY@
-	handle @stesso {
+	@same host pi.hole @RASPBERRY_IP@
+	handle @same {
 		redir https://{host}{uri} 308
 	}
 	handle {
@@ -27,13 +27,13 @@
 }
 
 # ---------------------------------------------------------------- HTTPS
-https://raspberry, https://pi.hole, https://@IP_RASPBERRY@ {
+https://raspberry, https://pi.hole, https://@RASPBERRY_IP@ {
 	tls /etc/caddy/certs/tls.pem /etc/caddy/certs/tls.pem
 	encode zstd gzip
 
-	# Una riga per richiesta al servizio di controllo, via UDP in locale e solo in memoria:
-	# serve a contare le visite a Wikipedia, alle mappe e agli altri servizi. Niente su disco,
-	# niente intestazioni (quindi niente cookie).
+	# One line per request to the control service, over local UDP and in memory only:
+	# used to count the visits to Wikipedia, the maps and the other services. Nothing on disk,
+	# no headers (so no cookies).
 	log {
 		output net udp/127.0.0.1:8084
 		format filter {
@@ -52,48 +52,48 @@ https://raspberry, https://pi.hole, https://@IP_RASPBERRY@ {
 		-Server
 	}
 
-	# Pi-hole: dashboard, API e pagina del monitor di rete (il suo web ascolta solo in locale)
+	# Pi-hole: dashboard, API and network monitor page (its web server listens only locally)
 	@pihole path /admin /admin/* /api /api/* /netmon /netmon/*
 	handle @pihole {
 		reverse_proxy 127.0.0.1:8080
 	}
 
-	# Wikipedia offline (kiwix-serve)
+	# Offline Wikipedia (kiwix-serve)
 	redir /wiki /wiki/ 308
 	handle /wiki/* {
 		reverse_proxy 127.0.0.1:8081
 	}
 
-	# Ricerca degli indirizzi
-	handle /cerca* {
+	# Address search
+	handle /search* {
 		reverse_proxy 127.0.0.1:8082
 	}
 
-	# Stato e interruttori dei servizi, monitor dell'hardware
-	handle /controllo/* {
+	# Service status and switches, hardware monitor
+	handle /control/* {
 		reverse_proxy 127.0.0.1:8083
 	}
 
-	# Mappe: un solo file PMTiles, letto a pezzi dal browser. Spente dall'hub -> non disponibili.
+	# Maps: a single PMTiles file, read in pieces by the browser. Switched off from the hub -> unavailable.
 	handle_path /tiles/* {
-		@spente file {
+		@off file {
 			root /var/lib/hub-control
-			try_files /mappe.off
+			try_files /maps.off
 		}
-		respond @spente "Mappe spente dall'hub" 503
+		respond @off "Maps switched off from the hub" 503
 		root * /srv/hub/maps
 		file_server
 	}
 
-	# Icone dei servizi: immagini caricate dall'hub, mai eseguite
-	handle_path /icone/* {
-		root * /srv/hub/icone
+	# Service icons: images uploaded from the hub, never executed
+	handle_path /icons/* {
+		root * /srv/hub/icons
 		header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 		header Cache-Control "public, max-age=300"
 		file_server
 	}
 
-	handle /servizi.json {
+	handle /services.json {
 		root * /srv/hub/config
 		header Cache-Control no-store
 		file_server
@@ -104,35 +104,39 @@ https://raspberry, https://pi.hole, https://@IP_RASPBERRY@ {
 		file_server
 	}
 	handle /ca.crt {
-		root * /etc/caddy/pubblico
+		root * /etc/caddy/public
 		header Content-Type application/x-x509-ca-cert
-		header Content-Disposition "attachment; filename=\"ca-di-casa.crt\""
+		header Content-Disposition "attachment; filename=\"home-ca.crt\""
 		file_server
 	}
 
-	# Servizi locali agganciati con "sudo hub-servizio aggiungi"
-	import servizi/*.caddy
+	# Bookmarks from raspberry-hub 1.x (the browser keeps the #position=... part)
+	redir /mappe /maps/ 308
+	redir /mappe/ /maps/ 308
 
-	# Il sito dell'hub (export statico di Next.js)
+	# Local services hooked in with "sudo hub-service add"
+	import services/*.caddy
+
+	# The hub website (Next.js static export)
 	handle {
 		root * /srv/hub/site
-		@fissi path /_next/static/*
-		header @fissi Cache-Control "public, max-age=31536000, immutable"
+		@immutable path /_next/static/*
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
 		try_files {path} {path}/index.html {path}.html
 		file_server
 	}
 
 	handle_errors {
 		root * /srv/hub/site
-		@spento expression {http.error.status_code} == 502 || {http.error.status_code} == 503
-		handle @spento {
-			rewrite * /spento/index.html
+		@unavailable expression {http.error.status_code} == 502 || {http.error.status_code} == 503
+		handle @unavailable {
+			rewrite * /unavailable/index.html
 			file_server {
 				status {http.error.status_code}
 			}
 		}
-		@manca expression {http.error.status_code} == 404
-		handle @manca {
+		@missing expression {http.error.status_code} == 404
+		handle @missing {
 			rewrite * /404.html
 			file_server {
 				status 404
