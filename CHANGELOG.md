@@ -6,6 +6,14 @@ All notable changes to this project. From 2.0.0 on, entries are written by
 [Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
 [docs/upgrading.md](docs/upgrading.md).
 
+## [2.0.1](https://github.com/Dxz0-96/raspberry-hub/compare/v2.0.0...v2.0.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **release:** ensure proper evaluation of pull request condition in C… ([#12](https://github.com/Dxz0-96/raspberry-hub/issues/12)) ([bffc098](https://github.com/Dxz0-96/raspberry-hub/commit/bffc09826cdd3ce126ac1fe4661c12775cfa5bb7))
+* **release:** ensure proper evaluation of pull request condition in CI workflow ([bffc098](https://github.com/Dxz0-96/raspberry-hub/commit/bffc09826cdd3ce126ac1fe4661c12775cfa5bb7))
+
 ## [2.0.0](https://github.com/Dxz0-96/raspberry-hub/compare/v1.0.0...v2.0.0) (2026-11-18)
 
 
