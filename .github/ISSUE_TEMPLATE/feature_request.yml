@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a new feature or an improvement to an existing one.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+      placeholder: When the microSD is almost full I only notice from the alert, I would like to know what is growing.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How it could work from the point of view of someone using the hub.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Fits the project
+      description: The hub runs entirely on a Raspberry Pi 3 at home, without cloud services.
+      options:
+        - label: It works offline and without external services.
+        - label: It is light enough for a Raspberry Pi 3 (1 GB of RAM).
+        - label: I would like to work on it myself.
