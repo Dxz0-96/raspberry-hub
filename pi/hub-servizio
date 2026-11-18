@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Aggancia altri servizi all'hub di casa.
+
+    sudo hub-servizio elenco
+    sudo hub-servizio aggiungi        fa le domande una alla volta
+    sudo hub-servizio rimuovi ID
+
+I semplici collegamenti (NAS, router, un'altra pagina) si aggiungono anche dall'hub, con "Aggiungi
+servizio". Questo comando serve per cio' che tocca il sistema:
+  - pubblicare un servizio che gira su questo Raspberry sotto https://raspberry/<percorso>/
+    (scrive un frammento in /etc/caddy/servizi/ e ricarica Caddy);
+  - dare al servizio l'interruttore acceso/spento nell'hub (aggiunge la sua unita' systemd
+    all'elenco di quelle che l'hub puo' avviare e fermare).
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+FILE_SERVIZI = "/srv/hub/config/servizi.json"
+DIR_ICONE = "/srv/hub/icone"
+DIR_CADDY = "/etc/caddy/servizi"
+FILE_UNITA = "/etc/hub-control/unita-consentite"
+REGOLA = "/etc/polkit-1/rules.d/50-hub-control.rules"
+RISERVATI = {"admin", "api", "netmon", "wiki", "cerca", "controllo", "tiles", "icone", "mappe", "hardware",
+             "spento", "_next", "servizi.json", "status.json", "ca.crt"}
+
+
+def leggi_servizi():
+    try:
+        with open(FILE_SERVIZI, encoding="utf-8") as f:
+            return json.load(f).get("servizi", [])
+    except (OSError, ValueError):
+        return []
+
+
+def scrivi_servizi(elenco):
+    provvisorio = FILE_SERVIZI + ".tmp"
+    with open(provvisorio, "w", encoding="utf-8") as f:
+        json.dump({"servizi": elenco}, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    shutil.chown(provvisorio, "hubctl", "hubctl")
+    os.chmod(provvisorio, 0o664)
+    os.replace(provvisorio, FILE_SERVIZI)
+
+
+def leggi_unita():
+    try:
+        with open(FILE_UNITA, encoding="utf-8") as f:
+            return [r.strip() for r in f if r.strip() and not r.startswith("#")]
+    except OSError:
+        return []
+
+
+def scrivi_regola(unita):
+    """Riscrive l'elenco delle unita' e la regola polkit che le rende comandabili da hubctl."""
+    os.makedirs(os.path.dirname(FILE_UNITA), exist_ok=True)
+    with open(FILE_UNITA, "w", encoding="utf-8") as f:
+        f.write("# Unita' systemd che l'hub puo' avviare e fermare. Gestito da hub-servizio.\n")
+        f.write("".join(u + "\n" for u in unita))
+    os.chmod(FILE_UNITA, 0o644)
+    with open(REGOLA, "w", encoding="utf-8") as f:
+        f.write("// Hub di casa: l'utente hubctl puo' avviare e fermare SOLO queste unita'.\n"
+                "// File generato da hub-servizio e hub-install.sh: le modifiche a mano vengono sovrascritte.\n"
+                "polkit.addRule(function(action, subject) {\n"
+                "    if (action.id !== \"org.freedesktop.systemd1.manage-units\" || subject.user !== \"hubctl\") {\n"
+                "        return polkit.Result.NOT_HANDLED;\n"
+                "    }\n"
+                f"    var unita = {json.dumps(unita)};\n"
+                "    var verbi = [\"start\", \"stop\", \"restart\"];\n"
+                "    if (unita.indexOf(action.lookup(\"unit\")) >= 0 && verbi.indexOf(action.lookup(\"verb\")) >= 0) {\n"
+                "        return polkit.Result.YES;\n"
+                "    }\n"
+                "    return polkit.Result.NO;\n"
+                "});\n")
+    os.chmod(REGOLA, 0o644)
+
+
+def chiedi(domanda, predefinito="", obbligatorio=False):
+    while True:
+        risposta = input(f"{domanda}{f' [{predefinito}]' if predefinito else ''}: ").strip() or predefinito
+        if risposta or not obbligatorio:
+            return risposta
+        print("  Questo campo serve.")
+
+
+def ricarica_caddy():
+    if subprocess.run(["caddy", "validate", "--config", "/etc/caddy/Caddyfile"], capture_output=True).returncode != 0:
+        return False
+    subprocess.run(["systemctl", "reload", "caddy"], check=False)
+    return True
+
+
+def elenco():
+    unita = set(leggi_unita())
+    for s in leggi_servizi():
+        tratti = [s.get("tipo", "link")]
+        if s.get("unita"):
+            tratti.append(f"unita' {s['unita']}" + ("" if s["unita"] in unita else " (non comandabile)"))
+        if s.get("aggiunto"):
+            tratti.append("aggiunto dall'hub")
+        print(f"{s.get('id', '?'):14} {s.get('nome', ''):22} {s.get('url', ''):34} {', '.join(tratti)}")
+    return 0
+
+
+def aggiungi():
+    servizi = leggi_servizi()
+    presenti = {s.get("id") for s in servizi}
+    print("Nuovo servizio per l'hub (Invio per lasciare vuoto un campo facoltativo)\n")
+    nome = chiedi("Nome mostrato nell'hub", obbligatorio=True)[:40]
+    ident = chiedi("Sigla (minuscole, cifre e trattini)", re.sub(r"[^a-z0-9]+", "-", nome.lower()).strip("-")[:20], True)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", ident) or ident in presenti or ident in RISERVATI:
+        print("Sigla non valida o gia' usata.", file=sys.stderr)
+        return 1
+    descrizione = chiedi("Descrizione breve")[:80]
+    servizio = {"id": ident, "nome": nome, "descrizione": descrizione, "tipo": "link"}
+
+    porta = chiedi("Porta locale del servizio su questo Raspberry (vuoto se e' su un altro dispositivo)")
+    if porta:
+        if not porta.isdigit() or not 1 <= int(porta) <= 65535:
+            print("La porta deve essere un numero tra 1 e 65535.", file=sys.stderr)
+            return 1
+        print("  Nota: funziona solo con le applicazioni che accettano di stare sotto un percorso.")
+        percorso = chiedi("Percorso sotto https://raspberry/", ident, True).strip("/")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", percorso) or percorso in RISERVATI:
+            print("Percorso non valido o riservato all'hub.", file=sys.stderr)
+            return 1
+        os.makedirs(DIR_CADDY, exist_ok=True)
+        frammento = os.path.join(DIR_CADDY, f"{ident}.caddy")
+        with open(frammento, "w", encoding="utf-8") as f:
+            f.write(f"# {nome}: aggiunto da hub-servizio\nredir /{percorso} /{percorso}/ 308\n"
+                    f"handle /{percorso}/* {{\n\treverse_proxy 127.0.0.1:{porta}\n}}\n")
+        if not ricarica_caddy():
+            os.remove(frammento)
+            print("Caddy non accetta la nuova configurazione: nulla e' stato cambiato.", file=sys.stderr)
+            return 1
+        servizio.update(url=f"/{percorso}/", verifica=f"tcp://127.0.0.1:{porta}")
+    else:
+        url = chiedi("Indirizzo completo (es. http://192.168.1.20/)", obbligatorio=True)
+        if not re.match(r"^https?://[^\s]+$", url):
+            print("L'indirizzo deve iniziare con http:// o https://", file=sys.stderr)
+            return 1
+        servizio["url"] = url
+
+    unita = chiedi("Unita' systemd per l'interruttore acceso/spento (vuoto = nessun interruttore)")
+    if unita:
+        if not unita.endswith(".service"):
+            unita += ".service"
+        if subprocess.run(["systemctl", "cat", unita], capture_output=True).returncode != 0:
+            print(f"L'unita' {unita} non esiste su questo Raspberry.", file=sys.stderr)
+            return 1
+        servizio.update(tipo="unita", unita=unita)
+        aggiunta = f"/etc/systemd/system/{unita}.d"
+        os.makedirs(aggiunta, exist_ok=True)
+        with open(os.path.join(aggiunta, "hub-control.conf"), "w", encoding="utf-8") as f:
+            f.write(f"# Spento dall'hub: resta spento anche dopo un riavvio.\n[Unit]\n"
+                    f"ConditionPathExists=!/var/lib/hub-control/{ident}.off\n")
+        scrivi_regola(sorted(set(leggi_unita()) | {unita}))
+        subprocess.run(["systemctl", "daemon-reload"], check=False)
+
+    icona = chiedi("File immagine per l'icona su questo Raspberry (PNG, JPEG, WebP o SVG; vuoto = iniziale del nome)")
+    if icona:
+        estensione = os.path.splitext(icona)[1].lower()
+        if not os.path.isfile(icona) or estensione not in (".png", ".jpg", ".jpeg", ".webp", ".svg"):
+            print("Immagine non trovata o formato non accettato: il servizio verra' aggiunto senza icona.")
+        else:
+            destinazione = os.path.join(DIR_ICONE, f"{ident}{estensione}")
+            shutil.copyfile(icona, destinazione)
+            shutil.chown(destinazione, "hubctl", "hubctl")
+            os.chmod(destinazione, 0o644)
+            servizio["icona"] = f"/icone/{ident}{estensione}"
+
+    scrivi_servizi(servizi + [servizio])
+    subprocess.run(["systemctl", "try-restart", "hub-control.service"], check=False)
+    print(f"\nFatto: \"{nome}\" compare nell'hub al prossimo caricamento della pagina.")
+    return 0
+
+
+def rimuovi(ident):
+    servizi = leggi_servizi()
+    servizio = next((s for s in servizi if s.get("id") == ident), None)
+    if not servizio:
+        print(f"Nessun servizio con sigla \"{ident}\". Usa: sudo hub-servizio elenco", file=sys.stderr)
+        return 1
+    if ident in ("pihole", "wikipedia", "mappe"):
+        print("I servizi di base dell'hub non si rimuovono da qui.", file=sys.stderr)
+        return 1
+    scrivi_servizi([s for s in servizi if s.get("id") != ident])
+    frammento = os.path.join(DIR_CADDY, f"{ident}.caddy")
+    if os.path.exists(frammento):
+        os.remove(frammento)
+        ricarica_caddy()
+    unita = servizio.get("unita")
+    if unita:
+        try:
+            os.remove(f"/etc/systemd/system/{unita}.d/hub-control.conf")
+            os.rmdir(f"/etc/systemd/system/{unita}.d")
+        except OSError:
+            pass
+        scrivi_regola([u for u in leggi_unita() if u != unita])
+        subprocess.run(["systemctl", "daemon-reload"], check=False)
+    icona = os.path.join(DIR_ICONE, os.path.basename(servizio.get("icona", "")))
+    if servizio.get("icona") and os.path.isfile(icona):
+        os.remove(icona)
+    for resto in (f"/var/lib/hub-control/{ident}.off",):
+        if os.path.exists(resto):
+            os.remove(resto)
+    subprocess.run(["systemctl", "try-restart", "hub-control.service"], check=False)
+    print(f"Rimosso \"{servizio.get('nome', ident)}\".")
+    return 0
+
+
+def main():
+    argomenti = sys.argv[1:]
+    if not argomenti or argomenti[0] not in ("elenco", "aggiungi", "rimuovi", "regola"):
+        print(__doc__)
+        return 2
+    if os.geteuid() != 0:
+        print("Va lanciato con sudo.", file=sys.stderr)
+        return 1
+    if argomenti[0] == "elenco":
+        return elenco()
+    if argomenti[0] == "aggiungi":
+        return aggiungi()
+    if argomenti[0] == "regola":            # usato da hub-install.sh: rigenera la regola polkit dall'elenco
+        scrivi_regola(leggi_unita() or ["kiwix-hub.service", "hub-search.service"])
+        return 0
+    if len(argomenti) != 2:
+        print("Uso: sudo hub-servizio rimuovi ID", file=sys.stderr)
+        return 2
+    return rimuovi(argomenti[1])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

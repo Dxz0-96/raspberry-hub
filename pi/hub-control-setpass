@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Imposta utente e password per gli interruttori dell'hub di casa.
+
+    sudo hub-control-setpass
+
+La password la digiti tu e non viene mostrata. Sul Raspberry resta solo la sua impronta (scrypt)
+in /etc/hub-control/credenziali.json, leggibile da root e dal servizio dell'hub.
+Si puo' rilanciare quando vuoi per cambiarle; in alternativa la password si cambia dall'hub.
+"""
+import base64
+import getpass
+import grp
+import hashlib
+import json
+import os
+import secrets
+import subprocess
+import sys
+
+FILE = "/etc/hub-control/credenziali.json"
+
+
+def main():
+    if os.geteuid() != 0:
+        print("Va lanciato con sudo.", file=sys.stderr)
+        return 1
+    attuale = "admin"
+    try:
+        with open(FILE, encoding="utf-8") as f:
+            attuale = json.load(f).get("utente") or attuale
+    except (OSError, ValueError):
+        pass
+    print("Accesso agli interruttori dell'hub")
+    utente = input(f"Nome utente [{attuale}]: ").strip() or attuale
+    if not 1 <= len(utente) <= 40 or any(c.isspace() for c in utente):
+        print("Il nome utente deve avere da 1 a 40 caratteri, senza spazi.", file=sys.stderr)
+        return 1
+    password = getpass.getpass("Nuova password (almeno 8 caratteri, non viene mostrata): ")
+    if len(password) < 8:
+        print("Troppo corta: servono almeno 8 caratteri. Nulla è stato cambiato.", file=sys.stderr)
+        return 1
+    if getpass.getpass("Ripeti la password: ") != password:
+        print("Le due password sono diverse. Nulla è stato cambiato.", file=sys.stderr)
+        return 1
+
+    salt = secrets.token_bytes(16)
+    impronta = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=16384, r=8, p=1, dklen=32,
+                              maxmem=64 * 1024 * 1024)
+    os.makedirs(os.path.dirname(FILE), mode=0o750, exist_ok=True)
+    provvisorio = FILE + ".tmp"
+    with open(os.open(provvisorio, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
+        json.dump({"utente": utente, "salt": base64.b64encode(salt).decode(),
+                   "hash": base64.b64encode(impronta).decode(), "n": 16384, "r": 8, "p": 1}, f)
+        f.write("\n")
+    try:
+        gruppo = grp.getgrnam("hubctl").gr_gid
+    except KeyError:
+        gruppo = 0
+    os.chown(provvisorio, 0, gruppo)
+    os.chmod(provvisorio, 0o660)
+    os.replace(provvisorio, FILE)
+    # chi era gia' entrato deve rifare l'accesso con le nuove credenziali: via tutte le sessioni salvate
+    try:
+        os.remove("/var/lib/hub-control/sessioni.json")
+    except FileNotFoundError:
+        pass
+    subprocess.run(["systemctl", "try-restart", "hub-control.service"], check=False)
+    print(f"Fatto. Utente: {utente}. Ora puoi accedere dall'hub.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

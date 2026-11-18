@@ -1,0 +1,20 @@
+#!/bin/bash
+# Passa a Caddy il certificato HTTPS emesso da pihole-cert.sh e gli fa rileggere la configurazione.
+# Lanciato da hub-cert-sync.path ogni volta che /etc/pihole/tls.pem cambia, e da hub-install.sh.
+#   /etc/caddy/certs/tls.pem      chiave + certificato del server (leggibile solo da root e da Caddy)
+#   /etc/caddy/pubblico/ca.crt    certificato pubblico della CA di casa, scaricabile da /ca.crt
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ORIGINE=/etc/pihole/tls.pem
+[ -s "$ORIGINE" ] || { echo "hub-cert-sync: $ORIGINE non c'e'" >&2; exit 1; }
+install -d -o root -g caddy -m 750 /etc/caddy/certs
+install -d -o root -g root -m 755 /etc/caddy/pubblico
+install -o root -g caddy -m 640 "$ORIGINE" /etc/caddy/certs/tls.pem.nuovo
+mv -f /etc/caddy/certs/tls.pem.nuovo /etc/caddy/certs/tls.pem
+if [ -s /etc/pihole-ca/ca.crt ]; then
+  install -o root -g root -m 644 /etc/pihole-ca/ca.crt /etc/caddy/pubblico/ca.crt
+fi
+if systemctl is-active --quiet caddy; then
+  systemctl reload caddy || systemctl restart caddy
+fi
+exit 0

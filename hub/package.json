@@ -1,0 +1,38 @@
+{
+  "name": "raspberry-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hub di casa per il Raspberry: servizi, interruttori, monitor hardware e mappe offline",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dxz0-96/raspberry-hub"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "assets": "node scripts/fetch-map-assets.mjs",
+    "mock": "node dev/mock-server.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test",
+    "test:tutto": "next build && playwright test"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@protomaps/basemaps": "^5.7.2",
+    "lucide-react": "^1.73.0",
+    "maplibre-gl": "^5.24.1",
+    "next": "^16.4.6",
+    "pmtiles": "^4.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
+  },
+  "license": "MIT"
+}

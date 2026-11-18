@@ -1,0 +1,5 @@
+# Gli script vanno sul Raspberry (Linux): fine riga LF anche se la repo si scarica su Windows
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.pmtiles binary
+*.png binary

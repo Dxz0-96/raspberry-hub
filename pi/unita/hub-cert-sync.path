@@ -1,0 +1,9 @@
+[Unit]
+Description=Hub di casa: segue i rinnovi del certificato HTTPS di casa
+
+[Path]
+# pihole-cert.sh scrive qui il certificato a ogni emissione o rinnovo.
+PathChanged=/etc/pihole/tls.pem
+
+[Install]
+WantedBy=multi-user.target

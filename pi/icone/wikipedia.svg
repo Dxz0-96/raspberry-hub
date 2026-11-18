@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Wikipedia">
+  <rect width="64" height="64" rx="14" fill="#1F4D2B"/>
+  <path d="M32 20c-5-3.5-11-4.5-18-4v28c7-.500 13 .500 18 4 5-3.5 11-4.5 18-4V16c-7-.500-13 .500-18 4z" fill="#123019" stroke="#F3F5F1" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M32 20v28" stroke="#F3F5F1" stroke-width="2.5"/>
+  <path d="M19 24.500c3 0 6 .600 8.5 1.800M19 31c3 0 6 .600 8.5 1.800M36.5 26.300C39 25.1 42 24.5 45 24.500M36.5 32.800C39 31.6 42 31 45 31" fill="none" stroke="#D9A941" stroke-width="2" stroke-linecap="round"/>
+</svg>

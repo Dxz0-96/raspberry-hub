@@ -1,0 +1,43 @@
+{
+  "servizi": [
+    {
+      "id": "pihole",
+      "nome": "Pi-hole",
+      "descrizione": "Blocco della pubblicità e DNS di casa",
+      "url": "/admin/",
+      "icona": "/icone/pihole.svg",
+      "tipo": "pihole"
+    },
+    {
+      "id": "wikipedia",
+      "nome": "Wikipedia",
+      "descrizione": "Enciclopedia offline in italiano",
+      "url": "/wikipedia/",
+      "icona": "/icone/wikipedia.svg",
+      "tipo": "unita",
+      "unita": "kiwix-hub.service",
+      "richiede": "/srv/hub/zim/wikipedia_it.zim"
+    },
+    {
+      "id": "mappe",
+      "nome": "Mappe",
+      "descrizione": "Italia offline con ricerca degli indirizzi",
+      "url": "/mappe/",
+      "icona": "/icone/mappe.svg",
+      "tipo": "unita",
+      "unita": "hub-search.service",
+      "richiede": "/srv/hub/maps/italia.pmtiles",
+      "facoltativa": true,
+      "senza_unita": "Ricerca degli indirizzi non attiva"
+    },
+    {
+      "id": "netmon",
+      "nome": "Monitor di rete",
+      "descrizione": "Controlli della rete di casa ogni minuto",
+      "url": "/netmon/",
+      "icona": "/icone/netmon.svg",
+      "tipo": "link",
+      "verifica": "tcp://127.0.0.1:8080"
+    }
+  ]
+}

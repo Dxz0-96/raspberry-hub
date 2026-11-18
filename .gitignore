@@ -1,0 +1,21 @@
+# Dati di questa casa: non vanno nella repo pubblica
+deploy.local.ps1
+ca-di-casa.crt
+*.crt
+*.pem
+*.key
+
+# Prodotti della compilazione
+pi/sito.tar.gz
+hub/node_modules/
+hub/.next/
+hub/out/
+hub/next-env.d.ts
+hub/public/map-assets/
+hub/*.tsbuildinfo
+hub/test-results/
+hub/playwright-report/
+
+# Sistema
+.DS_Store
+Thumbs.db
