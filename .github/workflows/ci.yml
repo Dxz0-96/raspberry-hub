@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  workflow_dispatch:       # started by release.yml on the release pull request
 
 permissions:
   contents: read
