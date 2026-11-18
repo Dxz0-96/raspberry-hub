@@ -34,8 +34,11 @@ test.describe("English browser", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Italiano" }).click();
     await expect(page.getByRole("button", { name: "Aggiungi servizio" })).toBeVisible();
-    await page.goto("/maps/");
+    // through the hub, as a person would: a page.goto() right after the click can beat the browser to
+    // saving the choice (the reload in the test above covers that it is saved)
+    await page.getByRole("link", { name: /^Mappe/ }).click();
     await expect(page.getByRole("combobox", { name: "Cerca un indirizzo o una località" })).toBeVisible();
     await expect(page).toHaveTitle("Mappe, raspberry");
+    await expect(page.getByRole("button", { name: "Avvicina" })).toBeVisible();
   });
 });
