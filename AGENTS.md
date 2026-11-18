@@ -58,7 +58,10 @@ The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhe
    waits for hydration). Tests run in parallel against one shared mock server: do not change its state in a
    way other tests can observe; use `page.route` (see `serviceIn`) instead.
 8. **Commits and pull requests** follow Conventional Commits (`feat(hub): ...`, `fix(pi): ...`); CI rejects
-   other messages. Add a line to `CHANGELOG.md` under "Unreleased" for user-visible changes.
+   other messages. The pull request title becomes the changelog line. **Never edit versions or
+   `CHANGELOG.md` by hand**: release-please does it (`version.txt`, `.release-please-manifest.json`,
+   `hub/package.json`, the `x-release-please-version` line in `pi/hub-install.sh`). Breaking changes get a `!`
+   and a section in `docs/upgrading.md`.
 9. **Do not commit** build output (`hub/out`, `hub/.next`, `pi/site.tar.gz`, `hub/public/map-assets`),
    certificates or `deploy.local.ps1`. Never put real IP addresses, passwords or tokens in the repository.
 10. Names, comments and docs are in English.
