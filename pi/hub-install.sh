@@ -24,6 +24,7 @@ ADMIN="${ADMIN_USER:-${SUDO_USER:-}}"
 # the address of the Raspberry Pi on the home network: the first one of the main interface, unless given
 PI="${PI_IP:-$(hostname -I | awk '{print $1}')}"
 LIB=/usr/local/lib/raspberry-hub
+HUB_VERSION=1.0.0   # x-release-please-version (updated by release-please, do not edit by hand)
 PIHOLE_PORT="127.0.0.1:8080"
 OFF_AT_FIRST_INSTALL="${OFF_AT_FIRST_INSTALL-wikipedia maps}"   # services that start switched off on a new install
 PMTILES_VERSION=1.31.2
@@ -94,6 +95,9 @@ do_prepare() {
 
   echo "== Scripts"
   for f in hub-search.py hub-control.py build-search-index.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
+  # the hub compares it with the version of the website and suggests an update when they differ
+  printf '%s\n' "$HUB_VERSION" > "$LIB/VERSION"; chmod 644 "$LIB/VERSION"
+  echo "   raspberry-hub $HUB_VERSION"
   for f in hub-update.sh hub-control-setpass hub-service hub-cert-sync hub-check.sh; do
     install -o root -g root -m 755 "$HERE/$f" "/usr/local/sbin/$f"
   done
