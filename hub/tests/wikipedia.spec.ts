@@ -1,158 +1,163 @@
-import { expect, test, type Page } from "@playwright/test";
-import { servizioIn } from "./aiuti";
+import type { Page } from "@playwright/test";
+import { expect, serviceIn, test } from "./helpers";
 
-const voce = (page: Page) => page.frameLocator("iframe.wiki-voce");
-const campo = (page: Page) => page.getByRole("combobox", { name: "Cerca in Wikipedia" });
+const article = (page: Page) => page.frameLocator("iframe.wiki-article");
+const field = (page: Page) => page.getByRole("combobox", { name: "Search Wikipedia" });
 
 test.describe("Wikipedia", () => {
-  test("dall'hub si arriva a Wikipedia", async ({ page }) => {
+  test("the hub leads to Wikipedia", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: /^Wikipedia/ }).click();
     await expect(page).toHaveURL(/\/wikipedia\//);
-    await expect(voce(page).locator(".mw-parser-output")).toContainText("Benvenuti su Wikipedia");
+    await expect(article(page).locator(".mw-parser-output")).toContainText("Welcome to Wikipedia");
   });
 
-  test("pagina principale nello stile dell'hub", async ({ page }) => {
+  test("main page in the style of the hub", async ({ page }) => {
     await page.goto("/wikipedia/");
-    await expect(voce(page).locator(".mw-parser-output")).toContainText("Benvenuti su Wikipedia");
-    await expect(page).toHaveURL(/#voce=Pagina_principale$/);
+    await expect(article(page).locator(".mw-parser-output")).toContainText("Welcome to Wikipedia");
+    await expect(page).toHaveURL(/#article=Main_Page$/);
     await expect(page).toHaveTitle("Wikipedia, raspberry");
-    // sulla pagina principale il titolo della voce non serve: c'è già la testata dell'hub
-    await expect(voce(page).locator("h1.firstHeading")).toBeHidden();
-    // la voce è trasparente (sotto c'è il pannello smerigliato) e usa i caratteri del progetto
-    const stile = await voce(page)
+    // on the main page the article title is not needed: the hub header is already there
+    await expect(article(page).locator("h1.firstHeading")).toBeHidden();
+    // the article is transparent (the frosted panel is underneath) and uses the fonts of the project
+    const style = await article(page)
       .locator("body")
-      .evaluate((b) => ({ fondo: getComputedStyle(b).backgroundColor, caratteri: getComputedStyle(b).fontFamily }));
-    expect(stile.fondo).toBe("rgba(0, 0, 0, 0)");
-    expect(stile.caratteri).toContain("IBM Plex Sans");
+      .evaluate((b) => ({ background: getComputedStyle(b).backgroundColor, fonts: getComputedStyle(b).fontFamily }));
+    expect(style.background).toBe("rgba(0, 0, 0, 0)");
+    expect(style.fonts).toContain("IBM Plex Sans");
   });
 
-  test("suggerimenti mentre si scrive, scelta con la tastiera", async ({ page }) => {
+  test("suggestions while typing, picked with the keyboard", async ({ page }) => {
     await page.goto("/wikipedia/");
-    await campo(page).fill("gari");
-    const lista = page.getByRole("listbox", { name: "Suggerimenti" });
-    await expect(lista.getByRole("option", { name: "Giuseppe Garibaldi" })).toBeVisible();
-    await expect(lista.getByRole("option", { name: "Garibaldi (disambigua)" })).toBeVisible();
-    await expect(lista.getByRole("option", { name: "Cerca «gari» in tutte le voci" })).toBeVisible();
-    await campo(page).press("ArrowDown");
-    await campo(page).press("Enter");
-    await expect(page).toHaveURL(/#voce=Giuseppe_Garibaldi$/);
-    await expect(voce(page).locator("h1")).toHaveText("Giuseppe Garibaldi");
+    await field(page).fill("gari");
+    const list = page.getByRole("listbox", { name: "Suggestions" });
+    await expect(list.getByRole("option", { name: "Giuseppe Garibaldi" })).toBeVisible();
+    await expect(list.getByRole("option", { name: "Garibaldi (disambiguation)" })).toBeVisible();
+    await expect(list.getByRole("option", { name: "Search “gari” in all articles" })).toBeVisible();
+    await field(page).press("ArrowDown");
+    await field(page).press("Enter");
+    await expect(page).toHaveURL(/#article=Giuseppe_Garibaldi$/);
+    await expect(article(page).locator("h1")).toHaveText("Giuseppe Garibaldi");
     await expect(page).toHaveTitle("Giuseppe Garibaldi, Wikipedia, raspberry");
   });
 
-  test("ricerca in tutte le voci: conteggio, parole evidenziate, pagine", async ({ page }) => {
+  test("full-text search: count, highlighted words, pages", async ({ page }) => {
     await page.goto("/wikipedia/");
-    await campo(page).fill("garibaldi");
-    await campo(page).press("Enter");
-    await expect(page).toHaveURL(/#cerca=garibaldi$/);
-    // Kiwix scrive "11,661": l'hub lo mostra all'italiana
-    await expect(page.locator(".wiki-conteggio")).toHaveText("Risultati 1-20 di 11.661 per «garibaldi»");
-    const risultati = page.locator(".wiki-risultati li");
-    await expect(risultati).toHaveCount(20);
-    await expect(risultati.first().locator("mark").first()).toHaveText(/garibaldi/i);
-    await expect(risultati.first().locator(".wiki-parole")).toHaveText(/^1\.?067 parole$/);
+    await field(page).fill("garibaldi");
+    await field(page).press("Enter");
+    await expect(page).toHaveURL(/#search=garibaldi$/);
+    await expect(page.locator(".wiki-count")).toHaveText("Results 1-20 of 11,661 for “garibaldi”");
+    const results = page.locator(".wiki-results li");
+    await expect(results).toHaveCount(20);
+    await expect(results.first().locator("mark").first()).toHaveText(/garibaldi/i);
+    await expect(results.first().locator(".wiki-words")).toHaveText("1,067 words");
 
-    await page.getByRole("button", { name: "Altri risultati" }).click();
-    await expect(page).toHaveURL(/#cerca=garibaldi&da=20$/);
-    await expect(page.locator(".wiki-conteggio")).toHaveText("Risultati 21-40 di 11.661 per «garibaldi»");
+    await page.getByRole("button", { name: "More results" }).click();
+    await expect(page).toHaveURL(/#search=garibaldi&from=20$/);
+    await expect(page.locator(".wiki-count")).toHaveText("Results 21-40 of 11,661 for “garibaldi”");
     await page.goBack();
-    await expect(page.locator(".wiki-conteggio")).toHaveText("Risultati 1-20 di 11.661 per «garibaldi»");
+    await expect(page.locator(".wiki-count")).toHaveText("Results 1-20 of 11,661 for “garibaldi”");
   });
 
-  test("una ricerca lanciata mentre la voce si carica tiene il suo indirizzo", async ({ page }) => {
-    // il Raspberry e' lento: la pagina principale arriva dopo che si e' gia' cercato qualcosa
+  test("a search started while the article loads keeps its address", async ({ page }) => {
+    // the Raspberry Pi is slow: the main page arrives after a search has already started
     await page.route("**/wiki/content/**", async (route) => {
-      await new Promise((ok) => setTimeout(ok, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await route.continue();
     });
     await page.goto("/wikipedia/");
-    await campo(page).fill("garibaldi");
-    await campo(page).press("Enter");
-    await expect(page.locator(".wiki-conteggio")).toBeVisible();
-    await expect(page.locator("iframe.wiki-voce")).toBeAttached();
+    await field(page).fill("garibaldi");
+    await field(page).press("Enter");
+    await expect(page.locator(".wiki-count")).toBeVisible();
+    await expect(page.locator("iframe.wiki-article")).toBeAttached();
     await page.waitForTimeout(2500);
-    await expect(page).toHaveURL(/#cerca=garibaldi$/);
-    await expect(page.locator(".wiki-conteggio")).toBeVisible();
+    await expect(page).toHaveURL(/#search=garibaldi$/);
+    await expect(page.locator(".wiki-count")).toBeVisible();
   });
 
-  test("Esc chiude i suggerimenti ma lascia il testo", async ({ page }) => {
+  test("Esc closes the suggestions but keeps the text", async ({ page }) => {
     await page.goto("/wikipedia/");
-    await campo(page).fill("gari");
-    await expect(page.getByRole("listbox", { name: "Suggerimenti" })).toBeVisible();
-    await campo(page).press("Escape");
-    await expect(page.getByRole("listbox", { name: "Suggerimenti" })).toBeHidden();
-    await expect(campo(page)).toHaveValue("gari");
+    await field(page).fill("gari");
+    await expect(page.getByRole("listbox", { name: "Suggestions" })).toBeVisible();
+    await field(page).press("Escape");
+    await expect(page.getByRole("listbox", { name: "Suggestions" })).toBeHidden();
+    await expect(field(page)).toHaveValue("gari");
   });
 
-  test("ricerca senza risultati", async ({ page }) => {
+  test("search without results", async ({ page }) => {
     await page.goto("/wikipedia/");
-    await campo(page).fill("zzzqqq");
-    await campo(page).press("Enter");
-    await expect(page.getByRole("status").filter({ hasText: "Nessuna voce contiene «zzzqqq»" })).toBeVisible();
+    await field(page).fill("zzzqqq");
+    await field(page).press("Enter");
+    await expect(page.getByRole("status").filter({ hasText: "No article contains “zzzqqq”" })).toBeVisible();
   });
 
-  test("da un risultato alla voce, poi un collegamento interno", async ({ page }) => {
-    await page.goto("/wikipedia/#cerca=garibaldi");
+  test("from a result to the article, then an internal link", async ({ page }) => {
+    await page.goto("/wikipedia/#search=garibaldi");
     await page.getByRole("button", { name: "Giuseppe Garibaldi", exact: true }).click();
-    await expect(page).toHaveURL(/#voce=Giuseppe_Garibaldi$/);
-    await expect(voce(page).locator("h1")).toHaveText("Giuseppe Garibaldi");
+    await expect(page).toHaveURL(/#article=Giuseppe_Garibaldi$/);
+    await expect(article(page).locator("h1")).toHaveText("Giuseppe Garibaldi");
 
-    await voce(page).getByRole("link", { name: "Nizza" }).click();
-    await expect(page).toHaveURL(/#voce=Nizza$/);
-    await expect(voce(page).locator("h1")).toHaveText("Nizza");
-    await expect(page).toHaveTitle("Nizza, Wikipedia, raspberry");
-    await expect(page.locator(".wiki-foglio")).toHaveAttribute("aria-busy", "false");
+    await article(page).getByRole("link", { name: "Nice" }).click();
+    await expect(page).toHaveURL(/#article=Nice$/);
+    await expect(article(page).locator("h1")).toHaveText("Nice");
+    await expect(page).toHaveTitle("Nice, Wikipedia, raspberry");
+    await expect(page.locator(".wiki-sheet")).toHaveAttribute("aria-busy", "false");
 
     await page.goBack();
-    await expect(voce(page).locator("h1")).toHaveText("Giuseppe Garibaldi");
+    await expect(article(page).locator("h1")).toHaveText("Giuseppe Garibaldi");
   });
 
-  test("la voce prende l'altezza del contenuto: scorre la pagina, non un riquadro", async ({ page }) => {
-    await page.goto("/wikipedia/#voce=Roma");
-    await expect(voce(page).locator("h1")).toHaveText("Roma");
+  test("the article takes the height of its content: the page scrolls, not a box", async ({ page }) => {
+    await page.goto("/wikipedia/#article=Rome");
+    await expect(article(page).locator("h1")).toHaveText("Rome");
     await expect
       .poll(() =>
-        page.locator("iframe.wiki-voce").evaluate((f: HTMLIFrameElement) => {
-          const interna = f.contentDocument?.documentElement.scrollHeight ?? 0;
-          return Math.abs(f.offsetHeight - interna) <= 2 && interna > window.innerHeight;
+        page.locator("iframe.wiki-article").evaluate((f: HTMLIFrameElement) => {
+          const inner = f.contentDocument?.documentElement.scrollHeight ?? 0;
+          return Math.abs(f.offsetHeight - inner) <= 2 && inner > window.innerHeight;
         }),
       )
       .toBe(true);
-    const scorre = await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 200);
-    expect(scorre).toBe(true);
+    const scrolls = await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 200);
+    expect(scrolls).toBe(true);
   });
 
-  test("voce a caso", async ({ page }) => {
+  test("random article", async ({ page }) => {
     await page.goto("/wikipedia/");
-    await expect(voce(page).locator(".mw-parser-output")).toContainText("Benvenuti");
-    await page.getByRole("button", { name: "Voce a caso" }).click();
-    await expect(page).toHaveURL(/#voce=Roma$/);
-    await expect(voce(page).locator("h1")).toHaveText("Roma");
+    await expect(article(page).locator(".mw-parser-output")).toContainText("Welcome");
+    await page.getByRole("button", { name: "Random article" }).click();
+    await expect(page).toHaveURL(/#article=Rome$/);
+    await expect(article(page).locator("h1")).toHaveText("Rome");
   });
 
-  test.describe("con il tema scuro del browser", () => {
+  test("bookmarks from version 1.x still open the article", async ({ page }) => {
+    await page.goto("/wikipedia/#voce=Galileo_Galilei");
+    await expect(article(page).locator("h1")).toHaveText("Galileo Galilei");
+    await expect(page).toHaveURL(/#article=Galileo_Galilei$/);
+  });
+
+  test.describe("with the dark browser theme", () => {
     test.use({ colorScheme: "dark" });
 
-    test("la voce segue il tema dell'hub, anche quando si cambia", async ({ page }) => {
-      await page.goto("/wikipedia/#voce=Galileo_Galilei");
-      await expect(voce(page).locator("h1")).toHaveText("Galileo Galilei");
-      await expect(voce(page).locator("html")).toHaveClass(/skin-theme-clientpref-night/);
-      await expect(voce(page).locator("body")).toHaveCSS("color", "rgb(243, 245, 241)");
+    test("the article follows the hub theme, also when it changes", async ({ page }) => {
+      await page.goto("/wikipedia/#article=Galileo_Galilei");
+      await expect(article(page).locator("h1")).toHaveText("Galileo Galilei");
+      await expect(article(page).locator("html")).toHaveClass(/skin-theme-clientpref-night/);
+      await expect(article(page).locator("body")).toHaveCSS("color", "rgb(243, 245, 241)");
 
-      await page.getByRole("button", { name: "Tema: chiaro" }).click();
-      await expect(voce(page).locator("html")).toHaveClass(/skin-theme-clientpref-day/);
-      await expect(voce(page).locator("body")).toHaveCSS("color", "rgb(22, 32, 26)");
+      await page.getByRole("button", { name: "Theme: light" }).click();
+      await expect(article(page).locator("html")).toHaveClass(/skin-theme-clientpref-day/);
+      await expect(article(page).locator("body")).toHaveCSS("color", "rgb(22, 32, 26)");
     });
   });
 
-  test("Wikipedia spenta: spiega cosa fare e riporta all'hub", async ({ page }) => {
-    await servizioIn(page, "wikipedia", "spento");
+  test("Wikipedia switched off: explains what to do and leads back to the hub", async ({ page }) => {
+    await serviceIn(page, "wikipedia", "off");
     await page.goto("/wikipedia/");
-    await expect(page.getByRole("heading", { name: "Wikipedia è spenta" })).toBeVisible();
-    await expect(page.locator("iframe.wiki-voce")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Voce a caso" })).toBeDisabled();
-    await page.getByRole("link", { name: "Torna all'hub" }).click();
+    await expect(page.getByRole("heading", { name: "Wikipedia is switched off" })).toBeVisible();
+    await expect(page.locator("iframe.wiki-article")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Random article" })).toBeDisabled();
+    await page.getByRole("link", { name: "Back to the hub" }).click();
     await expect(page).toHaveURL(/\/$/);
   });
 });
