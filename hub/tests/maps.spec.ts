@@ -89,6 +89,18 @@ test.describe("Maps", () => {
     await expect(page.locator(".maplibregl-canvas")).toHaveCount(0);
   });
 
+  test("a browser without WebGL 2 says so instead of waiting forever", async ({ page }) => {
+    await page.addInitScript(() => {
+      const getContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, options?: unknown) {
+        return type === "webgl2" ? null : getContext.call(this, type, options);
+      } as typeof getContext;
+    });
+    await page.goto("/maps/");
+    await expect(page.getByRole("heading", { name: "This browser cannot draw the map" })).toBeVisible();
+    await expect(page.locator(".maplibregl-canvas")).toHaveCount(0);
+  });
+
   test("maps not downloaded yet", async ({ page }) => {
     await page.route("**/tiles/basemap.pmtiles", (route) => route.fulfill({ status: 404 }));
     await serviceIn(page, "maps", "missing");

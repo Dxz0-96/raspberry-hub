@@ -274,6 +274,8 @@ export const it: Messages = {
     missingBody: "Il Raspberry le scarica da solo: l'hub mostra quando sono pronte.",
     unreachableTitle: "Il Raspberry non risponde",
     unreachableBody: "Controlla di essere collegato alla rete di casa e ricarica la pagina.",
+    unsupportedTitle: "Questo browser non riesce a disegnare la mappa",
+    unsupportedBody: "La mappa ha bisogno di WebGL 2: aggiorna il browser, attiva l'accelerazione hardware o usa un altro dispositivo.",
     zoomIn: "Avvicina",
     zoomOut: "Allontana",
     toggleAttribution: "Mostra o nascondi le fonti",
