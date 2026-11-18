@@ -6,6 +6,29 @@ All notable changes to this project. From 2.0.0 on, entries are written by
 [Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
 [docs/upgrading.md](docs/upgrading.md).
 
+## [2.0.0](https://github.com/Dxz0-96/raspberry-hub/compare/v1.0.0...v2.0.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* run hub-install.sh again (or deploy.ps1 -Update) to migrate; logged-in devices must log in again.
+
+### Features
+
+* english codebase, english/italian interface, ci and community files ([#1](https://github.com/Dxz0-96/raspberry-hub/issues/1)) ([d5726aa](https://github.com/Dxz0-96/raspberry-hub/commit/d5726aa9c3af11d29aef41370511583bbe945f06))
+* releases with release-please, and a version check between the website and the pi ([#8](https://github.com/Dxz0-96/raspberry-hub/issues/8)) ([933f724](https://github.com/Dxz0-96/raspberry-hub/commit/933f724de3b529846ec64121b29e54019ff19bff))
+
+
+### Bug Fixes
+
+* **hub:** upgrade maplibre-gl to 6.x ([#9](https://github.com/Dxz0-96/raspberry-hub/issues/9)) ([3c8a150](https://github.com/Dxz0-96/raspberry-hub/commit/3c8a150fd166f37a59bec87e142cf5b5a582ce53))
+
+
+### Dependencies and build
+
+* **deps:** Bump maplibre-gl from 5.24.1 to 6.18.0 in /hub ([#6](https://github.com/Dxz0-96/raspberry-hub/issues/6)) ([2e8cb1c](https://github.com/Dxz0-96/raspberry-hub/commit/2e8cb1c109425a10e5aba87ed9ce5ea7a016ecf8))
+* **deps:** Bump maplibre-gl from 5.24.1 to 6.4.1 in /hub ([#5](https://github.com/Dxz0-96/raspberry-hub/issues/5)) ([0ec2c73](https://github.com/Dxz0-96/raspberry-hub/commit/0ec2c73270c1f6a063ea39d56511c0da24cb15bc))
+
 ## [Unreleased]
 
 The whole project is now in English, and the interface speaks English and Italian.
