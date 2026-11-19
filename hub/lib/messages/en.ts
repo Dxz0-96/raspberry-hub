@@ -154,6 +154,7 @@ export const en = {
     start_failed: "The Raspberry Pi could not start the service.",
     stop_failed: "The Raspberry Pi could not stop the service.",
     no_switch: "This service has no switch.",
+    internal_error: "Something went wrong on the Raspberry Pi. Try again.",
   } as Record<string, string>,
   alerts: {
     temperature: (celsius: string) => `High temperature: ${celsius} °C. Check that the Raspberry Pi has air around it.`,

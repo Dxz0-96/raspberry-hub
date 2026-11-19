@@ -77,6 +77,8 @@ CLOCK_TICKS = os.sysconf("SC_CLK_TCK")
 NCPU = os.cpu_count() or 1
 VALID_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 VALID_TOKEN = re.compile(r"[A-Za-z0-9_-]{32,64}")
+# http.server writes response headers exactly as given: a CR or LF in one would split the response.
+UNSAFE_HEADER = re.compile(r"[\x00-\x1f\x7f]")
 VALID_URL = re.compile(r"^(https?://[^\s<>\"'\\]{3,280}|/[^\s<>\"'\\]{0,280})$")
 
 
@@ -805,12 +807,21 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def reply(self, status, body, headers=()):
+        # Every header is built from checked values (see cookie()); this is the last line of defence, in
+        # one place, so that a header added later cannot split the response either.
+        safe = []
+        for name, value in headers:
+            name, value = str(name), str(value)
+            if UNSAFE_HEADER.search(name) or UNSAFE_HEADER.search(value):
+                print(f"refused the response header {name!r}: it contains a control character", flush=True)
+                return self.reply(500, {"error": "internal_error", "message": "Something went wrong on the Raspberry Pi."})
+            safe.append((name, value))
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
-        for name, value in headers:
+        for name, value in safe:
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
