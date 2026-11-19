@@ -36,10 +36,13 @@ function Assert-Success([string]$What) {
 
 Push-Location (Join-Path $Root "hub")
 try {
-    if (-not (Test-Path "node_modules")) {
+    # npm keeps a copy of the lockfile it installed in node_modules: when package-lock.json is newer (a new
+    # version was pulled), the dependencies changed and are installed again, exactly as the lockfile says.
+    $Installed = "node_modules\.package-lock.json"
+    if (-not (Test-Path $Installed) -or (Get-Item "package-lock.json").LastWriteTime -gt (Get-Item $Installed).LastWriteTime) {
         Write-Host "== Installing dependencies"
-        npm install --no-audit --no-fund
-        Assert-Success "npm install"
+        npm ci --no-audit --no-fund
+        Assert-Success "npm ci"
     }
     Write-Host "== Map assets (fonts and icons)"
     npm run assets
