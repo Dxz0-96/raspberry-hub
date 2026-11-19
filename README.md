@@ -44,6 +44,8 @@ DNS from those addresses.)
   monitor (`/netmon/`). `hub-install.sh` expects to live in `~/pi-setup/hub` and skips the steps that need
   it if it cannot find it.
 - On the PC: Node.js 20 or newer, and PowerShell for `deploy.ps1`.
+- Browsers: any recent one. The offline map needs WebGL 2 (every current browser has it); without it the
+  map page says so instead of drawing.
 - Disk space: about 30 GB for Wikipedia (full Italian edition), 5 GB for the maps of Italy, 1 GB for the
   address index (6 GB free while it is built).
 
@@ -100,24 +102,63 @@ downloaded by the monthly update, or right away with `sudo hub-update.sh`.
 
 ## Updating
 
-After pulling a new version on the PC:
+New versions are published on the [releases page](https://github.com/Dxz0-96/raspberry-hub/releases), with
+their notes (also in [CHANGELOG.md](CHANGELOG.md)). Version numbers follow
+[Semantic Versioning](https://semver.org/): a new **major** version (2.0.0, 3.0.0) changes something on the
+Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md](docs/upgrading.md) first.
 
-```powershell
-.\deploy.ps1 -Update
-```
+1. **Before a major version, back up** the hub settings on the Raspberry Pi (a few MB; the downloaded
+   Wikipedia, maps and address index are not included and do not need to be):
 
-That is the same command as the installation: `hub-install.sh` is safe to run again, keeps your settings,
-added services, switch states and downloaded content, and upgrades older installations in place
-(`pi/hub-migrate.py` moves and converts files whose names or format changed; it does nothing when there is
-nothing to migrate). Interface-only changes can be published faster with `.\deploy.ps1`, which copies just
-the website; the footer of the hub warns when the website and the Pi scripts come from different releases.
+   ```bash
+   sudo tar --ignore-failed-read -czf ~/hub-backup.tar.gz /etc/hub.conf /etc/hub-control /etc/caddy /srv/hub/config /srv/hub/icons /srv/hub/icone /var/lib/hub-control
+   ```
 
-Releases and their notes are on the [releases page](https://github.com/Dxz0-96/raspberry-hub/releases) and in
-[CHANGELOG.md](CHANGELOG.md).
+   (`/srv/hub/icone` is where 1.x kept the icons; `--ignore-failed-read` skips whichever of the two is missing.)
 
-> **Upgrading from 1.x** (the Italian-named version): run `.\deploy.ps1 -Update` once. Files, settings,
-> the address index and the old URLs are converted automatically; bookmarks to `/mappe/` keep working.
-> Devices that were logged in have to log in once more. Details in [docs/upgrading.md](docs/upgrading.md).
+2. **Get the new version on the PC**, in the folder of this repository:
+
+   ```powershell
+   git switch main
+   git pull
+   ```
+
+3. **Update**:
+
+   ```powershell
+   .\deploy.ps1 -Update
+   ```
+
+   It takes a few minutes and asks for your sudo password on the Raspberry Pi. It:
+   - installs the dependencies of the website again if they changed, and builds it;
+   - copies the `pi/` folder to `~/pi-setup/hub` on the Raspberry Pi;
+   - runs `sudo bash hub-install.sh` there, the same installer as the first time. It converts whatever changed
+     (`pi/hub-migrate.py`; nothing, when nothing changed), installs the new scripts, services, website and
+     Caddy configuration, and keeps your settings, added services, switch states, password and downloaded
+     content. Pi-hole keeps answering DNS; the hub is unreachable only for the few seconds Caddy restarts.
+
+4. **Check** on the Raspberry Pi:
+
+   ```bash
+   sudo hub-check.sh
+   ```
+
+   The first line shows the version just installed (`raspberry-hub X.Y.Z`) and every check should say
+   `[ ok ]` or `[ -- ]` (skipped on purpose, for example Wikipedia switched off). In the hub, the footer shows
+   the same version.
+
+If the update stops with an error, its output and `sudo hub-check.sh` say which step failed; run
+`.\deploy.ps1 -Update` again once it is fixed. `sudo bash hub-install.sh disable` puts Pi-hole back on ports
+80 and 443 meanwhile (see [Rolling back](#rolling-back)). There is no automatic downgrade to an older major
+version: that is what the backup is for.
+
+Changes to the interface only can be published faster with `.\deploy.ps1` (without `-Update`), which copies
+just the website. If the website and the Raspberry Pi scripts end up on different versions, the footer of the
+hub says so and suggests `.\deploy.ps1 -Update`.
+
+> **Upgrading from 1.x** (the Italian-named version): the steps above, once. Files, settings, the address
+> index and the old URLs are converted automatically; bookmarks to `/mappe/` keep working; every device has
+> to log in once more. What changes, and how to tidy up afterwards: [docs/upgrading.md](docs/upgrading.md).
 
 ## Everyday use
 
