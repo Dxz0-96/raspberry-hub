@@ -290,6 +290,12 @@ export const en = {
       internal_error: "Something went wrong on the Raspberry Pi.",
     } as Record<string, string>,
   },
+  demo: {
+    label: "Demo",
+    text: (user: string, password: string) =>
+      `This is a demo: the Raspberry Pi and its data are made up, and what you change is forgotten when the page reloads. To try the switches, log in as ${user} with the password ${password}.`,
+    install: "How to install it",
+  },
   unavailable: {
     title: "This service is off or not responding",
     body: "If you switched it off from the hub, switch it back on and try again. If it was on, give it a few seconds: after a reboot of the Raspberry Pi, services take a moment to come back.",

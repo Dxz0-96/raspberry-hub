@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import Link from "next/link";
 import { CircleAlert, ImagePlus, Pencil, Plus, Trash2 } from "lucide-react";
-import { BASE, errorMessage, useHub } from "@/lib/hub";
+import { BASE, PREFIX, errorMessage, useHub } from "@/lib/hub";
 import { dayMonth, monthYear } from "@/lib/format";
 import { useI18n, type Locale } from "@/lib/i18n";
 import type { Messages } from "@/lib/messages/en";
@@ -12,9 +12,10 @@ import { Dialog } from "./Dialog";
 
 type Tone = "ok" | "idle" | "fault";
 
-/** Icons live on the Raspberry Pi (/icons/...): in development they come from the mock Raspberry Pi. */
+/** Icons live on the Raspberry Pi (/icons/...): in development they come from the mock Raspberry Pi, in the demo
+ *  they are files next to it. */
 function iconUrl(icon: string): string {
-  return icon.startsWith("/icons/") ? BASE + icon : icon;
+  return icon.startsWith("/icons/") ? (BASE || PREFIX) + icon : icon;
 }
 
 /** Built-in services are labelled by the hub, in the page language; added ones as they were typed. */

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Bug, Download, GitBranch, PartyPopper, Scale, TriangleAlert } from "lucide-react";
-import { useHub } from "@/lib/hub";
+import { DEMO, useHub } from "@/lib/hub";
 import { longDate } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { isNewMajor, isNewer } from "@/lib/version";
@@ -123,12 +123,14 @@ export function Footer() {
               )}
             </li>
           )}
-          <li>
-            <a href="/ca.crt" download="home-ca.crt">
-              <Download size={17} aria-hidden="true" />
-              <span>{t.footer.homeCa}</span>
-            </a>
-          </li>
+          {!DEMO && (
+            <li>
+              <a href="/ca.crt" download="home-ca.crt">
+                <Download size={17} aria-hidden="true" />
+                <span>{t.footer.homeCa}</span>
+              </a>
+            </li>
+          )}
         </ul>
       </div>
       <p className="footer-sources">
