@@ -349,6 +349,12 @@ no Raspberry Pi needed. Install the browser once with `npx playwright install ch
 builds and tests in one go. GitHub Actions runs all of the above, plus ShellCheck and the commit convention,
 on every pull request.
 
+Pull requests that touch `pi/` also run `hub-install.sh` for real ("Install on Debian"): in a Debian 13 arm64
+container with systemd, on GitHub's arm64 runners, on a clean system and on a 1.x installation, twice (the second
+run must change nothing), then they check the services, the API and the conversions. Pi-hole is not there, so
+the `enable` step is not run. The same runs on the next Debian release (testing) without blocking, to see
+breakages before people upgrade their Raspberry Pi. `.github/scripts/install-test.sh` is the script.
+
 Every Monday, the "Content sources" workflow checks that the sources of the monthly update still answer the
 way the scripts expect: the Kiwix listing and checksums, the Protomaps builds, the Photon address dump (its
 first lines go through `build-search-index.py`), the pinned `go-pmtiles` release and the map assets. Nothing

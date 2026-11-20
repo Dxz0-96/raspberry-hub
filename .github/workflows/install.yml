@@ -1,0 +1,57 @@
+name: Install on Debian
+
+# Runs hub-install.sh for real, in a Debian arm64 container with systemd, on GitHub's arm64 runners: a clean
+# system and an upgrade from 1.x, each installed twice (the second run must change nothing), then what can be
+# checked without Pi-hole. The next Debian release (testing) runs too, without blocking, to see breakages
+# before people upgrade their Raspberry Pi. See .github/scripts/install-test.sh.
+on:
+  pull_request:
+    paths:
+      - "pi/**"
+      - ".github/workflows/install.yml"
+      - ".github/docker/**"
+      - ".github/scripts/install-test.sh"
+      - ".github/scripts/fixture-1x.py"
+  workflow_dispatch:       # started by release.yml on the release pull request
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Debian ${{ matrix.debian }}, ${{ matrix.scenario }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.debian == 'testing' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: [trixie, testing]
+        scenario: [fresh, from-1x]
+    env:
+      DEBIAN: ${{ matrix.debian }}
+      SCENARIO: ${{ matrix.scenario }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Debian with systemd
+        run: |
+          docker build --build-arg DEBIAN="$DEBIAN" -t hub-debian .github/docker/debian-systemd
+          docker run -d --name pi --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            --tmpfs /run --tmpfs /run/lock -v "$PWD:/repo:ro" hub-debian
+          for _ in $(seq 1 60); do
+            state=$(docker exec pi systemctl is-system-running 2>/dev/null || true)
+            case "$state" in running|degraded) break ;; esac
+            sleep 1
+          done
+          echo "systemd: $state"
+      - name: Install and check
+        run: docker exec pi bash /repo/.github/scripts/install-test.sh "$SCENARIO"
+      - name: Logs of the container
+        if: failure()
+        run: |
+          docker exec pi systemctl --failed --no-pager || true
+          docker exec pi journalctl -n 200 --no-pager || true
