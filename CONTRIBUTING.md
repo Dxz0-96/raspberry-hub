@@ -146,6 +146,15 @@ To add a language: copy `it.ts`, translate it, add the code to `LOCALES` and `ME
 `hub/lib/i18n.tsx` and to the language check in `LANGUAGE_SCRIPT`, and add a test like
 `hub/tests/i18n.spec.ts`.
 
+## Dependency updates
+
+Dependabot opens its pull requests once a month, grouped (`.github/dependabot.yml`). Minor and patch npm
+updates merge by themselves once the required checks pass: `.github/workflows/dependabot.yml` approves them and
+turns on auto-merge, and `hub/package.json` and `hub/package-lock.json` have no code owner for this. Major npm
+versions and GitHub Actions updates wait for the maintainer: check the release notes (and, for anything that
+touches the map or the Pi, the hub itself) before merging. If main moved on, `@dependabot rebase` in a comment
+brings a pull request up to date.
+
 ## Releases
 
 Releases are made by [release-please](https://github.com/googleapis/release-please)

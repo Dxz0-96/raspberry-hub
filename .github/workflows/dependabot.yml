@@ -1,0 +1,42 @@
+name: Dependabot
+
+# Dependabot's npm updates of a minor or patch version (one group a month, see .github/dependabot.yml) merge by
+# themselves once CI passes: this workflow approves them and turns on auto-merge (squash). A failing check keeps
+# the pull request open. Major versions and GitHub Actions updates stay for a person: they need a closer look,
+# and the workflows run with write access (their files keep a code owner in .github/CODEOWNERS).
+on:
+  pull_request_target:          # runs the workflow of main with no code from the pull request: never checks it out
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    name: Auto-merge minor and patch npm updates
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Dxz0-96/raspberry-hub'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write           # the squash merge
+      pull-requests: write      # the approval and auto-merge
+    steps:
+      - id: dependabot
+        uses: dependabot/fetch-metadata@v3
+      - name: Approve, and merge when CI passes
+        if: >-
+          steps.dependabot.outputs.package-ecosystem == 'npm_and_yarn' &&
+          (steps.dependabot.outputs.update-type == 'version-update:semver-minor' ||
+           steps.dependabot.outputs.update-type == 'version-update:semver-patch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.html_url }}
+          UPDATE: ${{ steps.dependabot.outputs.update-type }}
+        run: |
+          gh pr review --approve "$PR" --body "npm ${UPDATE#version-update:semver-} update: approved by the Dependabot workflow, it merges by itself when CI passes."
+          gh pr merge --auto --squash "$PR"
+      - name: Left for a person
+        if: steps.dependabot.outputs.package-ecosystem != 'npm_and_yarn' || (steps.dependabot.outputs.update-type != 'version-update:semver-minor' && steps.dependabot.outputs.update-type != 'version-update:semver-patch')
+        env:
+          ECOSYSTEM: ${{ steps.dependabot.outputs.package-ecosystem }}
+          UPDATE: ${{ steps.dependabot.outputs.update-type }}
+        run: echo "Not merged automatically ($ECOSYSTEM, $UPDATE): it needs a review."

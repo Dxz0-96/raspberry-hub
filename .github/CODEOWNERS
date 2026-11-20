@@ -1,2 +1,8 @@
 # Every change needs the approval of the maintainer (see the branch protection of main).
 * @Dxz0-96
+
+# Except the npm dependency files, which have no code owner: Dependabot's minor and patch updates of them merge by
+# themselves once CI passes (.github/workflows/dependabot.yml approves them). A pull request that changes any other
+# file still needs the maintainer, and every pull request still needs one approval and the required checks.
+/hub/package.json
+/hub/package-lock.json
