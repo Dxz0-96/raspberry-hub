@@ -11,6 +11,10 @@ off, and see how the hardware is doing. Everything runs on the Raspberry Pi, wit
 
 ![The hub on a desktop browser, light theme](docs/screenshots/home-light.png)
 
+**[Try the demo](https://dxz0-96.github.io/raspberry-hub/)**: the hub of the latest release in your browser, with
+a made-up Raspberry Pi. The switches and "Add service" work (log in as `admin`, password `demo`) and everything
+goes back to the start when the page reloads; the map has central Rome only, and Wikipedia is switched off.
+
 | Dark theme | Phone | Italian |
 |---|---|---|
 | ![Dark theme](docs/screenshots/home-dark.png) | ![Phone](docs/screenshots/phone.png) | ![Italian interface](docs/screenshots/home-italian.png) |
@@ -327,6 +331,12 @@ repository root (ignored by git), then run `node dev/mock-pi.mjs` and open `http
 The maps must be switched on. Through the tunnel the first load is slower than at home: connected directly
 to the Raspberry Pi each map tile arrives in 50-150 ms.
 
+The demo on GitHub Pages is the same site built with `npm run demo` (into `out-demo/`, never the site copied to
+the Raspberry Pi): `lib/demo.ts` answers in the browser what the Raspberry Pi would, with the made-up data of
+`dev/pretend-pi.mjs`, the same the mock serves. `node scripts/serve-demo.mjs` shows it on
+`http://localhost:8796/raspberry-hub/`, `npm run test:demo` tests it. `.github/workflows/demo.yml` publishes it
+after every release, or by hand from the Actions page.
+
 The maps page keeps the position in the address (`/maps/#position=zoom/lat/lon`): reloading keeps it, and
 such an address can be saved as a bookmark.
 
@@ -348,6 +358,12 @@ The Playwright tests run on the built site with a small map of central Rome
 no Raspberry Pi needed. Install the browser once with `npx playwright install chromium`; `npm run test:all`
 builds and tests in one go. GitHub Actions runs all of the above, plus ShellCheck and the commit convention,
 on every pull request.
+
+Pull requests that touch `pi/` also run `hub-install.sh` for real ("Install on Debian"): in a Debian 13 arm64
+container with systemd, on GitHub's arm64 runners, on a clean system and on a 1.x installation, twice (the second
+run must change nothing), then they check the services, the API and the conversions. Pi-hole is not there, so
+the `enable` step is not run. The same runs on the next Debian release (testing) without blocking, to see
+breakages before people upgrade their Raspberry Pi. `.github/scripts/install-test.sh` is the script.
 
 Every Monday, the "Content sources" workflow checks that the sources of the monthly update still answer the
 way the scripts expect: the Kiwix listing and checksums, the Protomaps builds, the Photon address dump (its

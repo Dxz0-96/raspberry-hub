@@ -11,6 +11,7 @@ pi/site.tar.gz
 hub/node_modules/
 hub/.next/
 hub/out/
+hub/out-demo/
 hub/next-env.d.ts
 hub/public/map-assets/
 hub/*.tsbuildinfo

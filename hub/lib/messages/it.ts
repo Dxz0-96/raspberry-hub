@@ -286,6 +286,12 @@ export const it: Messages = {
       internal_error: "Qualcosa non ha funzionato sul Raspberry.",
     },
   },
+  demo: {
+    label: "Demo",
+    text: (user, password) =>
+      `Questa è una demo: il Raspberry e i suoi dati sono inventati, e quello che cambi si perde ricaricando la pagina. Per provare gli interruttori accedi come ${user} con la password ${password}.`,
+    install: "Come installarlo",
+  },
   unavailable: {
     title: "Questo servizio è spento o non risponde",
     body: "Se lo hai spento dall'hub, riaccendilo con il suo interruttore e riprova. Se era acceso, dagli qualche secondo: dopo un riavvio del Raspberry i servizi impiegano un momento a ripartire.",
