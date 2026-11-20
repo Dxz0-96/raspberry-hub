@@ -1,0 +1,11 @@
+[Unit]
+Description=raspberry-hub: once a day, is a newer release out?
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=6h
+# a Raspberry Pi that was off catches up when it starts again
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -85,6 +85,8 @@ check "monthly update scheduled" test -s /etc/cron.d/monthly-update
 check "the monthly update includes the hub content" grep -q hub-update.sh /usr/local/sbin/monthly-update.sh
 check "weekly certificate check scheduled" test -s /etc/cron.d/pihole-cert
 check "network monitor active" active netmon.timer
+if grep -q '^CHECK_FOR_UPDATES=no' /etc/hub.conf 2>/dev/null; then skipped "daily check for new versions switched off"
+else check "daily check for new versions scheduled" active hub-version-check.timer; fi
 
 echo
 echo "Result: $PASSED checks passed, $FAILED failed, $SKIPPED skipped."

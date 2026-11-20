@@ -74,6 +74,11 @@ def write_rule(units):
                 "    if (units.indexOf(action.lookup(\"unit\")) >= 0 && verbs.indexOf(action.lookup(\"verb\")) >= 0) {\n"
                 "        return polkit.Result.YES;\n"
                 "    }\n"
+                "    // the \"Update\" button of the hub: only starting an upgrade to a version number\n"
+                "    if (/^hub-upgrade@[0-9]+\\.[0-9]+\\.[0-9]+\\.service$/.test(action.lookup(\"unit\")) &&\n"
+                "        action.lookup(\"verb\") === \"start\") {\n"
+                "        return polkit.Result.YES;\n"
+                "    }\n"
                 "    return polkit.Result.NO;\n"
                 "});\n")
     os.chmod(POLKIT_RULE, 0o644)

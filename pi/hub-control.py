@@ -6,11 +6,13 @@ No login required (anyone on the LAN):
     GET  /control/system                hardware readings right now
     GET  /control/system/history        last hour (one point every 5 s) and last 24 hours (one per minute)
     GET  /control/system/history?period=month   last 30 days (one point per hour, average and peak)
+    GET  /control/upgrade               installed version, latest release found by the daily check, upgrade progress
     POST /control/login                 {username, password} -> session cookie
 Login required:
     POST   /control/logout
     POST   /control/password            {current, new}
     POST   /control/services/<id>/switch   {on: true|false}
+    POST   /control/upgrade             {version}   starts the upgrade to the latest release (hub-upgrade@.service)
     POST   /control/services            {name, description, url, icon?}   adds a link
     POST   /control/services/<id>       same as above, edits a link added from the hub
     DELETE /control/services/<id>       removes a link added from the hub
@@ -35,6 +37,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
@@ -64,7 +67,12 @@ PIHOLE_API = os.environ.get("HUB_PIHOLE_API", "http://127.0.0.1:8080/api")
 CLI_PW_FILE = os.environ.get("HUB_PIHOLE_CLI_PW", "/etc/pihole/cli_pw")
 UNBOUND_FILE = "/etc/unbound/unbound.conf.d/forward-dot.conf"
 # written next to this script by hub-install.sh: the version of the Raspberry Pi side of the hub
-VERSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+VERSION_FILE = os.environ.get("HUB_VERSION_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"))
+# written as root by hub-update.sh check-version (daily) and by hub-upgrade.py: read only here
+LATEST_FILE = os.path.join(HUB_DIR, "state", "latest.json")
+UPGRADE_FILE = os.path.join(HUB_DIR, "state", "upgrade.json")
+UPGRADE_FREE_BYTES = 200 * 1024 * 1024
+SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 # A session stays valid until "Log out": the cookie lasts 400 days (the most browsers accept) and is
 # renewed once a day while the hub is in use. Sessions survive reboots.
@@ -394,6 +402,69 @@ class Monitor(threading.Thread):
                 return {"month": {"step": 3600, "points": points}}
             return {"recent": {"step": self.STEP, "points": list(self.recent)},
                     "day": {"step": 60, "points": list(self.day)}}
+
+
+# =========================================================================== new versions
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def semver(text):
+    match = SEMVER.match(str(text or ""))
+    return tuple(int(x) for x in match.groups()) if match else None
+
+
+def upgrade_status():
+    """What the hub needs for the notice and the "Update" button."""
+    installed = read_text(VERSION_FILE).strip() or None
+    latest = read_json(LATEST_FILE)
+    latest = latest if isinstance(latest, dict) and semver(latest.get("version")) else None
+    progress = read_json(UPGRADE_FILE)
+    return {"installed": installed, "latest": latest,
+            "newer": bool(latest and semver(installed) and semver(latest["version"]) > semver(installed)),
+            "progress": progress if isinstance(progress, dict) else None}
+
+
+def upgrade_running(progress):
+    """An upgrade that has not ended and wrote in the last 2 hours (a reboot in the middle ends it)."""
+    if not progress or progress.get("step") in (None, "done", "failed"):
+        return False
+    try:
+        return time.time() - os.path.getmtime(UPGRADE_FILE) < 7200
+    except OSError:
+        return False
+
+
+def start_upgrade(version):
+    """(HTTP status, code, English message). Only the latest release found by the daily check is accepted:
+    never a string or an address from the request, which is only compared with it."""
+    info = upgrade_status()
+    latest = info["latest"]
+    if not latest or str(version) != latest["version"]:
+        return 400, "not_latest", "Only the latest release found by the daily check can be installed."
+    if not semver(info["installed"]):
+        return 409, "version_unknown", "The installed version is unknown: update with sudo hub-install.sh upgrade."
+    if not info["newer"]:
+        return 409, "up_to_date", "This version is already installed."
+    if upgrade_running(info["progress"]):
+        return 409, "upgrade_running", "An update is already running."
+    try:
+        running = [f for f in os.listdir(os.path.join(HUB_DIR, "state")) if f.endswith(".running")]
+    except OSError:
+        running = []
+    if running:
+        return 409, "content_update_running", "Wikipedia, the maps or the addresses are being updated: try again later."
+    if shutil.disk_usage("/").free < UPGRADE_FREE_BYTES:
+        return 507, "no_space", "Not enough free space on the Raspberry Pi for the update."
+    ok, _ = run(["systemctl", "--no-ask-password", "--no-block", "start", f"hub-upgrade@{latest['version']}.service"],
+                timeout=30)
+    if not ok:
+        return 502, "upgrade_not_started", "The Raspberry Pi could not start the update."
+    return 202, "", ""
 
 
 # =========================================================================== services
@@ -993,6 +1064,8 @@ class Handler(BaseHTTPRequestHandler):
                                     "services": services, "dns": dns}, renewal)
         if parts == ["system"]:
             return self.reply(200, monitor.current())
+        if parts == ["upgrade"]:
+            return self.reply(200, upgrade_status())
         if parts == ["system", "history"]:
             # the month is asked for only while the hub shows it: the poll every minute stays light
             period = parse_qs(urlparse(self.path).query).get("period", [""])[0]
@@ -1031,6 +1104,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self.require_login():
             return None
+
+        if parts == ["upgrade"]:
+            status, code, message = start_upgrade(data.get("version"))
+            if code:
+                return self.fail(status, code, message)
+            return self.reply(202, {"ok": True})
 
         if parts == ["password"]:
             credentials = sessions.credentials()

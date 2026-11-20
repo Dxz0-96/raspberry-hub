@@ -131,7 +131,27 @@ downloaded by the monthly update, or right away with `sudo hub-update.sh`.
 ## Updating
 
 New versions are published on the [releases page](https://github.com/Dxz0-96/raspberry-hub/releases), with
-their notes (also in [CHANGELOG.md](CHANGELOG.md)). Version numbers follow
+their notes (also in [CHANGELOG.md](CHANGELOG.md)). Ways to hear about them:
+
+- **In the hub**: once a day the Raspberry Pi asks GitHub for the latest release (`hub-version-check.timer`),
+  and the footer says "Version X.Y.Z is available" with its notes. GitHub sees only the public address of your
+  home, as for the map downloads; `CHECK_FOR_UPDATES=no` in `/etc/hub.conf` turns the check off.
+- **A message**: `NOTIFY_NEW_VERSION=netmon` in `/etc/hub.conf` (Telegram, with the `pi-setup` package), or
+  the address of an [ntfy](https://ntfy.sh) topic, free and without an account
+  (`NOTIFY_NEW_VERSION=https://ntfy.sh/a-name-only-you-know`). One message per new version; off by default.
+- **GitHub**: "Watch" → "Custom" → "Releases" on the repository sends an email for each release (needs a
+  GitHub account), and [the releases feed](https://github.com/Dxz0-96/raspberry-hub/releases.atom) works in any
+  RSS reader without one.
+
+**Update from the hub**: next to the notice, "Update" (after logging in) shows the release notes and, for a new
+major version, the link to what changes. Once confirmed, the Raspberry Pi runs the same upgrade as
+`sudo hub-install.sh upgrade` below and the hub shows its steps: download, check, installation, check after the
+restart. The hub stops answering for a minute or two meanwhile, and the page reloads by itself when the new
+version answers. Only the latest release found by the daily check can be installed this way, never during a
+content update. Behind the button there is a systemd unit, `hub-upgrade@X.Y.Z.service`, that `hub-control` may
+only start (the same polkit rule as the switches).
+
+Version numbers follow
 [Semantic Versioning](https://semver.org/): a new **major** version (2.0.0, 3.0.0) changes something on the
 Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md](docs/upgrading.md) first.
 
@@ -202,7 +222,7 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Change the hub username and password | On the Pi: `sudo hub-control-setpass`. Password only: from the hub, user menu, "Change password" |
 | Update Wikipedia, maps, addresses now | On the Pi: `sudo hub-update.sh` (or `wiki`, `maps`, `addresses`) |
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
-| Install a new release | On the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
+| Install a new release | "Update" in the footer of the hub, when it says a new version is available; or on the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
 | Change the Wikipedia variant or the map area | `/etc/hub.conf`, then `sudo hub-update.sh` |
 | Change the language | `EN` / `IT` in the header |
 
@@ -246,6 +266,7 @@ Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync
 |---|---|
 | At boot | Caddy, the control service and, if switched on, Wikipedia and address search start |
 | Every 5 seconds | The control service samples the hardware. The last hour and 24 hours stay in memory; the last month (one point per hour, about 30 KB) is written to `/var/lib/hub-control` only when the service stops and once a day, so a reboot does not empty it |
+| Every day | Asks GitHub for the latest release, for the notice in the hub (`CHECK_FOR_UPDATES` in `/etc/hub.conf`) |
 | Sunday 04:30 | Certificate check (`pi-setup` package) |
 | 1st of the month, 03:00 | After the system and Pi-hole: new Wikipedia edition if one came out, maps and address index rebuilt, then reboot |
 

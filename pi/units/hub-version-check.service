@@ -1,0 +1,9 @@
+[Unit]
+Description=raspberry-hub: is a newer release out? (asks GitHub, see CHECK_FOR_UPDATES in /etc/hub.conf)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hub-update.sh check-version
+Nice=10

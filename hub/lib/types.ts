@@ -96,6 +96,43 @@ export interface ContentStatus {
   wikipedia: { edition: string | null; bytes: number | null; result: string | null; running: boolean };
   maps: { build: string | null; bytes: number | null; result: string | null; running: boolean };
   addresses: { date: string | null; bytes: number | null; result: string | null; running: boolean };
+  /** The latest release found by the daily check (hub-update.sh check-version); null when it is switched off
+   *  (CHECK_FOR_UPDATES=no) or has not run yet. Missing on installs older than this field. */
+  latest?: LatestRelease | null;
+}
+
+export interface LatestRelease {
+  version: string;
+  /** The release page on GitHub, with its notes */
+  url: string;
+  published?: string;
+  checked?: string;
+}
+
+/** One step of an upgrade started from the hub, as hub-upgrade.py writes it to /srv/hub/state/upgrade.json */
+export type UpgradeStep = "start" | "download" | "verify" | "install" | "check" | "done" | "failed";
+
+export interface UpgradeProgress {
+  version: string;
+  from: string;
+  step: UpgradeStep;
+  /** "ok", or "error: <English text>" */
+  result: string | null;
+  /** Machine-readable reason of a failure: "download_failed", "checksum_mismatch", ... */
+  error: string | null;
+  /** "check_failed": installed and answering, but hub-check.sh reports a problem */
+  warning?: string | null;
+  started: string;
+  updated: string | null;
+}
+
+/** GET /control/upgrade */
+export interface UpgradeStatus {
+  installed: string | null;
+  /** With the release notes (Markdown) */
+  latest: (LatestRelease & { notes?: string }) | null;
+  newer: boolean;
+  progress: UpgradeProgress | null;
 }
 
 export interface SearchResult {

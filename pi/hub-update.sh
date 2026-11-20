@@ -7,6 +7,7 @@
 #   sudo hub-update.sh addresses      address index only
 #   sudo hub-update.sh estimate-maps  tells how big the maps would be, without downloading them
 #   sudo hub-update.sh status         only rewrites /srv/hub/status.json
+#   sudo hub-update.sh check-version  asks GitHub for the latest release (hub-version-check.timer, daily)
 #
 # Every new piece of content is downloaded on the side, verified and swapped with the old one only
 # if it is intact: if something goes wrong the previous version keeps working.
@@ -22,6 +23,8 @@ MAP_MAXZOOM=15
 ADDRESS_DUMP_URL=https://download1.graphhopper.com/public/europe/italy/photon-dump-italy-1.0-latest.jsonl.zst
 MIN_AGE_DAYS=20
 HUB_DIR=/srv/hub
+CHECK_FOR_UPDATES=yes
+NOTIFY_NEW_VERSION=
 # shellcheck source=hub.conf
 [ -r /etc/hub.conf ] && . /etc/hub.conf
 
@@ -35,6 +38,7 @@ STATE="$HUB_DIR/state"
 WIKI_URL="https://download.kiwix.org/zim/wikipedia/"
 BUILDS_URL="https://build-metadata.protomaps.dev/builds.json"
 TILES_URL="https://build.protomaps.com/"
+RELEASES_URL="https://api.github.com/repos/Dxz0-96/raspberry-hub/releases/latest"
 
 ts()  { date "+%F %T"; }
 log() { echo "$(ts) $*"; }
@@ -47,6 +51,13 @@ write_status() {
   HUB_DIR="$HUB_DIR" WIKI_LANGUAGE="$WIKI_LANGUAGE" python3 - <<'PY'
 import json, os, re, time
 hub = os.environ["HUB_DIR"]
+def latest():
+    try:
+        with open(f"{hub}/state/latest.json", encoding="utf-8") as f:
+            data = json.load(f)
+        return {k: data.get(k) for k in ("version", "url", "published", "checked")}
+    except (OSError, ValueError, AttributeError):
+        return None
 def read(p):
     try:
         with open(p, encoding="utf-8") as f:
@@ -71,6 +82,8 @@ status = {
     "addresses": {"date": read(f"{hub}/search/addresses.date"), "bytes": size(f"{hub}/search/addresses.db"),
                   "result": read(f"{hub}/state/addresses.result"),
                   "running": os.path.exists(f"{hub}/state/addresses.running")},
+    # the latest release found by check-version (null when the check is switched off or never ran)
+    "latest": latest(),
 }
 tmp = f"{hub}/status.json.tmp"
 with open(tmp, "w", encoding="utf-8") as f:
@@ -253,6 +266,68 @@ do_addresses() {
   result addresses ok
 }
 
+# --------------------------------------------------------------------------- New versions
+# Once a day (hub-version-check.timer): the latest release on GitHub goes to state/latest.json, and the hub
+# shows it when it is newer than the installed version. Offline: nothing changes, it tries again tomorrow.
+do_check_version() {
+  local latest="$STATE/latest.json"
+  if [ "$CHECK_FOR_UPDATES" != yes ]; then
+    rm -f "$latest"; write_status; log "new versions: not checked (CHECK_FOR_UPDATES=$CHECK_FOR_UPDATES)"; return 0
+  fi
+  if ! curl -fsSL --max-time 30 -H "Accept: application/vnd.github+json" -o "$latest.download" "$RELEASES_URL"; then
+    rm -f "$latest.download"; log "new versions: GitHub not reachable, trying again tomorrow"; return 0
+  fi
+  STATE="$STATE" INSTALLED="$(cat "$LIB/VERSION" 2>/dev/null)" NOTIFY="$NOTIFY_NEW_VERSION" python3 - <<'PY'
+import json, os, re, subprocess, time, urllib.request
+state, installed, notify = os.environ["STATE"], os.environ["INSTALLED"].strip(), os.environ["NOTIFY"].strip()
+def version(text):
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", text or "")
+    return tuple(map(int, m.groups())) if m else None
+try:
+    with open(f"{state}/latest.json.download", encoding="utf-8") as f:
+        release = json.load(f)
+except (OSError, ValueError):
+    raise SystemExit("new versions: the answer of GitHub is not readable")
+tag = str(release.get("tag_name", ""))
+if release.get("prerelease") or release.get("draft") or not version(tag):
+    raise SystemExit(f"new versions: {tag!r} is not a release, ignored")
+latest = {"version": tag.lstrip("v"), "url": str(release.get("html_url", "")),
+          "published": str(release.get("published_at", "")), "notes": str(release.get("body") or "")[:20000],
+          "checked": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+with open(f"{state}/latest.json.tmp", "w", encoding="utf-8") as f:
+    json.dump(latest, f, ensure_ascii=False)
+os.chmod(f"{state}/latest.json.tmp", 0o644)
+os.replace(f"{state}/latest.json.tmp", f"{state}/latest.json")
+newer = version(installed) is not None and version(latest["version"]) > version(installed)
+print(f"new versions: latest {latest['version']}, installed {installed or 'unknown'}"
+      + (": a newer version is available" if newer else ""))
+# One message per new version, and only if it was asked for in /etc/hub.conf (NOTIFY_NEW_VERSION).
+marker = f"{state}/latest.notified"
+try:
+    notified = open(marker, encoding="utf-8").read().strip()
+except OSError:
+    notified = ""
+if newer and notify and notified != latest["version"]:
+    text = f"raspberry-hub {latest['version']} is available (installed: {installed}). {latest['url']}"
+    try:
+        if notify == "netmon":
+            subprocess.run(["/usr/local/bin/netmon", "notify", text], timeout=60, check=True, capture_output=True)
+        elif notify.startswith("https://"):
+            request = urllib.request.Request(notify, data=text.encode("utf-8"), method="POST",
+                                             headers={"Title": "raspberry-hub", "Click": latest["url"]})
+            urllib.request.urlopen(request, timeout=30).close()
+        else:
+            raise ValueError(f"NOTIFY_NEW_VERSION={notify!r} is neither netmon nor an https:// address")
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write(latest["version"] + "\n")
+        print("new versions: message sent")
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"new versions: the message could not be sent ({error})")
+PY
+  rm -f "$latest.download"
+  write_status
+}
+
 # --------------------------------------------------------------------------- start
 # Sourced by .github/scripts/check-sources.sh for the settings and functions above: nothing below runs then.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
@@ -263,14 +338,15 @@ case "$WHAT" in
   tutto) WHAT=all ;; mappe) WHAT=maps ;; indirizzi) WHAT=addresses ;; stato) WHAT=status ;; stima-mappe) WHAT=estimate-maps ;;
 esac
 case "$WHAT" in
-  all|wiki|maps|addresses|status|estimate-maps) ;;
-  *) echo "Usage: sudo hub-update.sh [all|wiki|maps|addresses|estimate-maps|status]" >&2; exit 2 ;;
+  all|wiki|maps|addresses|status|estimate-maps|check-version) ;;
+  *) echo "Usage: sudo hub-update.sh [all|wiki|maps|addresses|estimate-maps|status|check-version]" >&2; exit 2 ;;
 esac
 [ "$(id -u)" -eq 0 ] || { echo "Run it with sudo." >&2; exit 1; }
 mkdir -p "$ZIM" "$MAPS" "$SEARCH" "$STATE"
 
 if [ "$WHAT" = estimate-maps ]; then do_estimate_maps; exit $?; fi
 if [ "$WHAT" = status ]; then write_status; exit 0; fi
+if [ "$WHAT" = check-version ]; then do_check_version; exit 0; fi
 
 # Only one update per content at a time (wiki, maps and addresses can run together).
 lock() { exec {fd}>"/run/hub-update-$1.lock"; flock -n "$fd"; }
