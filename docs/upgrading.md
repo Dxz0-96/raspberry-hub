@@ -75,6 +75,21 @@ Changes to the interface alone can be published with `.\deploy.ps1` (without `-U
 website. If the website and the Raspberry Pi scripts then come from different releases, the footer of the hub
 says so: run `.\deploy.ps1 -Update` to bring them in step.
 
+### Deploy settings in .env
+
+`deploy.ps1` reads its settings from `.env` in the repository root (ignored by git): plain `KEY=value` lines,
+which are only read, never run. Your `deploy.local.ps1` keeps working, so nothing has to change; when both
+files set the same value, `.env` wins (and `-Pi` / `-Key` on the command line win over both). To move to `.env`:
+
+1. Copy `.env.example` to `.env`.
+2. Copy the values: `$DefaultPi` (1.x: `$PiPredefinito`) becomes `PI_HOST`, `$DefaultKey` (1.x:
+   `$ChiavePredefinita`) becomes `PI_SSH_KEY`. Write the key path as text, for example `~/.ssh/id_ed25519`
+   instead of `"$env:USERPROFILE\.ssh\id_ed25519"`: `~` is your user folder, and nothing else is expanded.
+3. Delete `deploy.local.ps1`.
+
+A setting `deploy.ps1` does not know gets a warning, so a typo does not go unnoticed. `HUB_URL` is the address
+printed at the end of a deploy (`https://raspberry/` unless you change it).
+
 ## From 1.x to 2.0
 
 Version 2.0 is the same hub, now entirely in English, with an English and Italian interface. Follow the steps
@@ -88,7 +103,7 @@ above, including the backup. Everything is converted automatically:
   `#voce=` and `#cerca=` addresses;
 - the theme chosen on each device is kept; the language follows the browser and can be changed in the header;
 - your `deploy.local.ps1` keeps working: `$PiPredefinito` and `$ChiavePredefinita` are still read (rename them
-  to `$DefaultPi` and `$DefaultKey` when you like).
+  to `$DefaultPi` and `$DefaultKey`, or move to `.env`, when you like: see [Deploy settings in .env](#deploy-settings-in-env)).
 
 Afterwards:
 

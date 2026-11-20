@@ -1,4 +1,5 @@
-# Data about this home: never in the public repository
+# Data about this home: never in the public repository (.env.example is the template to copy)
+.env
 deploy.local.ps1
 home-ca.crt
 *.crt

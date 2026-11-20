@@ -66,18 +66,22 @@ https://raspberry  ->  Caddy (ports 80 and 443, certificate from the "home CA")
 |---|---|
 | `hub/` | The interface: Next.js + React, built into a static site. Node does not run on the Pi. |
 | `pi/` | Everything that goes on the Raspberry Pi: Caddyfile, systemd services, scripts. On the Pi it lives in `~/pi-setup/hub`. |
-| `deploy.ps1` | Builds the hub and publishes it on the Raspberry Pi; with `-Update` it also installs the `pi/` scripts. |
+| `deploy.ps1` | Builds the hub and publishes it on the Raspberry Pi; with `-Update` it also installs the `pi/` scripts. Its settings are in `.env` (template: `.env.example`). |
 | `docs/` | Screenshots used by this README (`npm run screenshots` in `hub/` refreshes them). |
 
 ## Installation
 
-1. Clone this repository on your PC and set your Raspberry Pi address once in `deploy.local.ps1`
-   (ignored by git):
+1. Clone this repository on your PC and set your Raspberry Pi address once: copy
+   [`.env.example`](.env.example) to `.env` (ignored by git) and edit it:
 
-   ```powershell
-   $DefaultPi = "pi@192.168.1.10"
-   $DefaultKey = "$env:USERPROFILE\.ssh\id_ed25519"
+   ```dotenv
+   PI_HOST=pi@192.168.1.10
+   PI_SSH_KEY=~/.ssh/id_ed25519
+   HUB_URL=https://raspberry/
    ```
+
+   `deploy.ps1` only reads these `KEY=value` lines, it never runs them. `-Pi` and `-Key` on the command line
+   win over them, and an older `deploy.local.ps1` keeps working (see [docs/upgrading.md](docs/upgrading.md#deploy-settings-in-env)).
 
 2. Build the site and copy everything to the Pi, then run the installer there:
 

@@ -63,7 +63,8 @@ The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhe
    `hub/package.json`, the `x-release-please-version` line in `pi/hub-install.sh`). Breaking changes get a `!`
    and a section in `docs/upgrading.md`.
 9. **Do not commit** build output (`hub/out`, `hub/.next`, `pi/site.tar.gz`, `hub/public/map-assets`),
-   certificates or `deploy.local.ps1`. Never put real IP addresses, passwords or tokens in the repository.
+   certificates, `.env` or `deploy.local.ps1`. Never put real IP addresses, passwords or tokens in the
+   repository (`.env.example` holds only placeholders).
 10. Names, comments and docs are in English.
 
 ## Where things are
