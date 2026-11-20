@@ -46,6 +46,7 @@ LOG = os.path.join(STATE, "upgrade.log")
 LOCK = os.environ.get("HUB_UPGRADE_LOCK", "/run/hub-upgrade.lock")
 CONTROL_URL = os.environ.get("HUB_CONTROL_URL", "http://127.0.0.1:8083/control/status")
 CHECK = os.environ.get("HUB_CHECK", "/usr/local/sbin/hub-check.sh")
+CHECK_REPORT = os.environ.get("HUB_CHECK_REPORT", "/run/hub-check.json")      # the alert in the hub reads it
 FREE_BYTES = 200 * 1024 * 1024        # the package (a few MB), the site unpacked twice, and headroom
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
@@ -285,7 +286,7 @@ def upgrade(args):
         answered = answering_version(180)
         if answered != target:
             raise Refused("check_failed", f"The hub answers with version {answered or 'none'} instead of {target}.")
-        if os.path.exists(CHECK) and run_logged([CHECK, "--wait"]) != 0:
+        if os.path.exists(CHECK) and run_logged([CHECK, "--wait", "--report", CHECK_REPORT]) != 0:
             progress.step("done", "ok", warning="check_failed")
             print(f"raspberry-hub {target} installed; hub-check.sh reports problems: see above.")
             return 0

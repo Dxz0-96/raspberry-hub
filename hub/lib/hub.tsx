@@ -28,6 +28,14 @@ import type {
 
 /** Empty in production (same origin). In development it points to the mock Raspberry Pi: see dev/mock-server.mjs. */
 export const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+/** The demo on GitHub Pages (npm run demo): no Raspberry Pi, lib/demo.ts answers in the browser. */
+export const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
+/** Where the site lives on its server: "" on the Raspberry Pi, "/raspberry-hub" for the demo on GitHub Pages.
+ *  Links through next/link get it by themselves; files of the site (icons, map assets, tiles) need it. */
+export const PREFIX = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+/** The login of the demo, shown in its banner */
+export const DEMO_USER = "admin";
+export const DEMO_PASSWORD = "demo";
 
 export class ApiError extends Error {
   constructor(
@@ -53,6 +61,7 @@ export function errorMessage(t: Messages, problem: unknown, fallback: string): s
 }
 
 export async function api<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  if (DEMO) return (await import("./demo")).demoApi<T>(path, options);
   const writes = options.method !== undefined && options.method !== "GET";
   let response: Response;
   try {
@@ -149,6 +158,12 @@ interface Hub {
   removeService: (id: string) => Promise<void>;
   /** Starts the upgrade to the latest release (login required: if missing, the login opens first) */
   startUpgrade: (version: string, then: () => void) => Promise<void>;
+}
+
+/** The address search of the map: hub-search.py through Caddy (or the demo). */
+export async function searchAddresses(params: URLSearchParams, signal: AbortSignal): Promise<Response> {
+  if (DEMO) return (await import("./demo")).demoSearch(params);
+  return fetch(`${BASE}/search?${params}`, { signal, cache: "no-store" });
 }
 
 /** The installed version, the latest release with its notes, and the progress of an upgrade. */

@@ -7,14 +7,16 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { ChevronLeft, Search, X } from "lucide-react";
-import { BASE } from "@/lib/hub";
+import { BASE, DEMO, PREFIX, searchAddresses } from "@/lib/hub";
 import { useI18n, type Locale } from "@/lib/i18n";
 import type { Messages } from "@/lib/messages/en";
 import { useTheme } from "@/lib/theme";
 import type { SearchResult } from "@/lib/types";
 
-// The default content is a map of Italy (see MAP_BBOX in pi/hub.conf): start there and stay around it.
-const START: [number, number] = [12.6, 42.4];
+// The default content is a map of Italy (see MAP_BBOX in pi/hub.conf): start there and stay around it. The demo
+// has only central Rome (tests/fixtures/rome.pmtiles).
+const START: [number, number] = DEMO ? [12.4829, 41.8933] : [12.6, 42.4];
+const START_ZOOM = DEMO ? 13 : 5.2;
 const BOUNDS: [[number, number], [number, number]] = [[3.5, 33.5], [21.5, 49.0]];
 
 let prepared = false;
@@ -30,11 +32,11 @@ function prepare() {
 function tilesUrl(): string {
   const chosen = process.env.NEXT_PUBLIC_TILES_URL;
   if (chosen) return chosen;
-  return `${BASE || window.location.origin}/tiles/basemap.pmtiles`;
+  return `${BASE || window.location.origin + PREFIX}/tiles/basemap.pmtiles`;
 }
 
 function mapStyle(dark: boolean, locale: Locale): maplibregl.StyleSpecification {
-  const origin = window.location.origin;
+  const origin = window.location.origin + PREFIX;
   const theme = dark ? "dark" : "light";
   return {
     version: 8,
@@ -92,7 +94,7 @@ function AddressSearch({ map, onResult }: { map: maplibregl.Map | null; onResult
           params.set("lon", centre.lng.toFixed(4));
           params.set("zoom", map.getZoom().toFixed(1));     // from zoom 8 up, closeness counts
         }
-        const response = await fetch(`${BASE}/search?${params}`, { signal: abort.signal, cache: "no-store" });
+        const response = await searchAddresses(params, abort.signal);
         if (!response.ok) {
           setResults([]);
           setNote("searchUnavailable");
@@ -245,7 +247,7 @@ export default function MapView() {
           container: container.current,
           style: mapStyle(startDark, startLocale),
           center: START,
-          zoom: 5.2,
+          zoom: START_ZOOM,
           minZoom: 4,
           maxZoom: 19,
           maxBounds: BOUNDS,

@@ -60,7 +60,8 @@ function DnsPath() {
   );
 }
 
-/** How the microSD is used: system, Wikipedia, maps, address index, free space. */
+/** How the disk of the content is used (the microSD, or a USB disk): system, Wikipedia, maps, address index,
+ *  free space. */
 function MicroSdBar() {
   const { system } = useHub();
   const { t, locale } = useI18n();
@@ -73,6 +74,7 @@ function MicroSdBar() {
     );
   }
   const { total, used, content } = system.disk;
+  const where = t.network.medium[system.disk.medium ?? "sd"] ?? t.network.medium.other;
   const contentTotal = content.wikipedia + content.maps + content.addresses;
   const segments = [
     { key: "system", name: t.network.system, bytes: Math.max(0, used - contentTotal) },
@@ -86,10 +88,15 @@ function MicroSdBar() {
   return (
     <figure className="microsd">
       <figcaption>
-        <span>microSD</span>
+        <span>
+          {where.charAt(0).toUpperCase() + where.slice(1)}
+          {system.disk.medium && system.disk.medium !== "sd" && system.disk.device && (
+            <span className="microsd-device"> {system.disk.device}</span>
+          )}
+        </span>
         <span className="microsd-total">{t.network.usedOf(size(used), size(total))}</span>
       </figcaption>
-      <div className="storage-bar" role="img" aria-label={t.network.storageLabel(description)}>
+      <div className="storage-bar" role="img" aria-label={t.network.storageLabel(where, description)}>
         {segments
           .filter((s) => s.bytes > 0)
           .map((s) => (

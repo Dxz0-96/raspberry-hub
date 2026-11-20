@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { House, Search, Shuffle, X } from "lucide-react";
-import { BASE, useHub } from "@/lib/hub";
+import { BASE, DEMO, useHub } from "@/lib/hub";
 import { decimal } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
@@ -485,7 +485,8 @@ export default function Wikipedia() {
   }, []);
 
   const state = states?.wikipedia?.state;
-  const available = states === null || state === "on";
+  // the demo has no Wikipedia: never ask for its pages
+  const available = !DEMO && (states === null || state === "on");
   return (
     <>
       <div className="wiki-bar-region">
