@@ -5,6 +5,7 @@ No login required (anyone on the LAN):
     GET  /control/status                state of every service (with visits per minute), session, DNS, version
     GET  /control/system                hardware readings right now
     GET  /control/system/history        last hour (one point every 5 s) and last 24 hours (one per minute)
+    GET  /control/system/history?period=month   last 30 days (one point per hour, average and peak)
     POST /control/login                 {username, password} -> session cookie
 Login required:
     POST   /control/logout
@@ -43,7 +44,7 @@ import urllib.error
 import urllib.request
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 PORT = int(os.environ.get("HUB_CONTROL_PORT", "8083"))
 HUB_DIR = os.environ.get("HUB_DIR", "/srv/hub")
@@ -53,6 +54,8 @@ STATE_DIR = os.environ.get("HUB_CONTROL_STATE", "/var/lib/hub-control")
 CREDENTIALS_FILE = os.environ.get("HUB_CONTROL_CREDENTIALS", "/etc/hub-control/credentials.json")
 ALLOWED_UNITS_FILE = os.environ.get("HUB_CONTROL_UNITS", "/etc/hub-control/allowed-units")
 SESSIONS_FILE = os.path.join(STATE_DIR, "sessions.json")    # token hashes only, never the tokens
+MONTH_FILE = os.path.join(STATE_DIR, "history-month.json")  # the hourly history, so a restart does not empty it
+MONTH_DAYS = 30
 INTERFACE = os.environ.get("HUB_IFACE", "eth0")
 DISK = os.environ.get("HUB_DISK", "mmcblk0")
 SECURE_COOKIE = os.environ.get("HUB_INSECURE_COOKIE") != "1"      # "1" only for testing over plain HTTP
@@ -101,7 +104,9 @@ def run(command, timeout=20):
 
 # =========================================================================== hardware monitor
 class Monitor(threading.Thread):
-    """Samples /proc and /sys every 5 seconds and keeps the history in memory (nothing written to disk)."""
+    """Samples /proc and /sys every 5 seconds and keeps the history in memory. Only the hourly history of the
+    last month is written to disk (MONTH_FILE), when the service stops and at most once a day: the SD card is
+    never written in the sampling loop, and a power cut loses at most a day of it."""
     STEP = 5
 
     def __init__(self):
@@ -110,11 +115,18 @@ class Monitor(threading.Thread):
         self.latest = {}
         self.recent = deque(maxlen=720)           # one hour at one point every 5 s: [time, cpu, temp]
         self.day = deque(maxlen=1440)             # 24 hours at one point per minute: [time, cpu, temp, mem, load]
+        # 30 days at one point per hour, from every 5 s sample of that hour, so a short spike stays visible:
+        # [start of the hour, cpu average, cpu peak, temp average, temp peak] (temperatures null if unknown)
+        self.month = deque(maxlen=MONTH_DAYS * 24)
         self._minute = []
+        self._hour = None
+        self._saved = time.time()
+        self._save_lock = threading.Lock()         # the daily save and the one at stop never write together
         self._power = (0.0, None)
         self._content = (0.0, {})
         self.model = read_text("/proc/device-tree/model").strip("\x00\n ") or "Raspberry Pi"
         self.hostname = socket.gethostname()
+        self.load_month()
 
     @staticmethod
     def _cpu():
@@ -293,13 +305,93 @@ class Monitor(threading.Thread):
                 n = len(self._minute)
                 self.day.append([round(now)] + [round(sum(c[i] for c in self._minute) / n, 1) for i in range(4)])
                 self._minute = []
+        self.add_to_hour(now, overall, temp)
+
+    # ------------------------------------------------------------------ last month
+    def add_to_hour(self, now, cpu, temp):
+        """Adds one sample to the hour it belongs to. When that closes the previous hour, the history is also
+        saved if the last save is more than a day old: the safety net against a power cut."""
+        hour = int(now // 3600)
+        closed = False
+        with self.lock:
+            if self._hour and self._hour["hour"] != hour:
+                point = self._hour_point(self._hour)
+                if not self.month or point[0] > self.month[-1][0]:      # the clock may jump back at boot
+                    self.month.append(point)
+                self._hour = None
+                closed = True
+            if not self._hour:
+                self._hour = {"hour": hour, "n": 0, "cpu": 0.0, "cpu_peak": 0.0, "temp_n": 0, "temp": 0.0,
+                              "temp_peak": None}
+            h = self._hour
+            h["n"] += 1
+            h["cpu"] += cpu
+            h["cpu_peak"] = max(h["cpu_peak"], cpu)
+            if temp is not None:
+                h["temp_n"] += 1
+                h["temp"] += temp
+                h["temp_peak"] = temp if h["temp_peak"] is None else max(h["temp_peak"], temp)
+        if closed and time.time() - self._saved >= 86400:
+            self.save_month()
+
+    @staticmethod
+    def _hour_point(h):
+        temp = round(h["temp"] / h["temp_n"], 1) if h["temp_n"] else None
+        return [h["hour"] * 3600, round(h["cpu"] / h["n"], 1), round(h["cpu_peak"], 1), temp, h["temp_peak"]]
+
+    @staticmethod
+    def _valid_point(p):
+        def number(v, nullable=False):
+            return (v is None and nullable) or (isinstance(v, (int, float)) and not isinstance(v, bool))
+        return (isinstance(p, list) and len(p) == 5 and isinstance(p[0], int) and not isinstance(p[0], bool)
+                and number(p[1]) and number(p[2]) and number(p[3], True) and number(p[4], True))
+
+    def load_month(self):
+        """Reads the hourly history saved by the last run, without the points older than MONTH_DAYS. A missing
+        or damaged file only means an empty history: it is rewritten when the service stops."""
+        try:
+            with open(MONTH_FILE, encoding="utf-8") as f:
+                points = json.load(f).get("points", [])
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError, AttributeError) as error:
+            print(f"monitor: the month history is not readable, starting empty ({error})", flush=True)
+            return
+        oldest = time.time() - MONTH_DAYS * 86400
+        good = sorted((p for p in points if self._valid_point(p) and p[0] >= oldest), key=lambda p: p[0])
+        with self.lock:
+            for p in good:
+                if not self.month or p[0] > self.month[-1][0]:
+                    self.month.append(p)
+
+    def save_month(self):
+        """Writes the completed hours to MONTH_FILE (about 30 KB), replacing it in one step."""
+        with self._save_lock:
+            with self.lock:
+                points = list(self.month)
+                self._saved = time.time()
+            temporary = MONTH_FILE + ".tmp"
+            try:
+                with open(temporary, "w", encoding="utf-8") as f:
+                    json.dump({"step": 3600, "points": points}, f, separators=(",", ":"))
+                os.replace(temporary, MONTH_FILE)
+            except OSError as error:
+                print(f"monitor: could not save the month history: {error}", flush=True)
 
     def current(self):
         with self.lock:
             return dict(self.latest)
 
-    def history(self):
+    def history(self, period=""):
         with self.lock:
+            if period == "month":
+                oldest = time.time() - MONTH_DAYS * 86400
+                points = [p for p in self.month if p[0] >= oldest]
+                if self._hour and self._hour["n"]:                         # the hour so far
+                    current = self._hour_point(self._hour)
+                    if not points or current[0] > points[-1][0]:
+                        points.append(current)
+                return {"month": {"step": 3600, "points": points}}
             return {"recent": {"step": self.STEP, "points": list(self.recent)},
                     "day": {"step": 60, "points": list(self.day)}}
 
@@ -902,7 +994,11 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["system"]:
             return self.reply(200, monitor.current())
         if parts == ["system", "history"]:
-            return self.reply(200, monitor.history())
+            # the month is asked for only while the hub shows it: the poll every minute stays light
+            period = parse_qs(urlparse(self.path).query).get("period", [""])[0]
+            if period not in ("", "month"):
+                return self.fail(400, "invalid_request", "Invalid request.")
+            return self.reply(200, monitor.history(period))
         self.fail(404, "not_found", "Page not found.")
 
     # ------------------------------------------------------------------ POST
@@ -1022,6 +1118,7 @@ def main():
     dns_stats.start()
 
     def stop(*_):
+        monitor.save_month()                       # the one regular write of the history: when the service stops
         dns_stats.close()                          # do not leave sessions open in Pi-hole
         os._exit(0)
 

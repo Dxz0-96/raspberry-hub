@@ -167,16 +167,21 @@ export const en = {
     period: "Period",
     lastHour: "Last hour",
     day: "24 hours",
+    month: "Last month",
     cpu: "Processor",
     temperature: "Temperature",
     valueAt: (value: string, time: string) => `${value} at ${time}`,
+    /** One hour of the month: its average and its highest reading */
+    hourAt: (average: string, peak: string, day: string, time: string) =>
+      `${day}, ${time}: average ${average}, peak ${peak}`,
+    dayTime: (day: string, time: string) => `${day}, ${time}`,
     chartLabel: (title: string, now: string, from: string, to: string, min: string, max: string) =>
       `${title}: now ${now}. Between ${from} and ${to}, from ${min} to ${max}.`,
+    monthLegend: "One point per hour: the line is the average, the band reaches the peak.",
     emptyHistory: "The history fills up over time: come back in a few minutes.",
+    emptyMonth: "The month fills up one hour at a time: come back in a couple of hours.",
     topProcesses: "Busiest processes",
     noData: "No data from the Raspberry Pi.",
-    tableSummary: "The same data as a table",
-    time: "Time",
   },
   network: {
     title: "Network and storage",

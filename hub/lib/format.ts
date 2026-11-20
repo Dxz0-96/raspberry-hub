@@ -65,6 +65,11 @@ export function clock(seconds: number, locale: Locale): string {
   return new Date(seconds * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
+/** Seconds since the epoch -> "Nov 16" / "16 nov", in the browser's time zone like clock() */
+export function shortDay(seconds: number, locale: Locale): string {
+  return new Date(seconds * 1000).toLocaleDateString(locale, { day: "numeric", month: "short" });
+}
+
 /** A build date for the footer: "November 18, 2026" / "18 novembre 2026" */
 export function longDate(iso: string, locale: Locale): string {
   return new Date(iso).toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Rome" });

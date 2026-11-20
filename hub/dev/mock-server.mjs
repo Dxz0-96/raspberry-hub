@@ -89,6 +89,26 @@ function wave(t, base, amplitude) {
   }
 }
 
+// The last 30 days as hub-control.py keeps them: one point per hour, [start of the hour, cpu average, cpu peak,
+// temperature average, temperature peak], the last one being the hour so far. A warm week, a busy night of the
+// monthly update and a few hours without a temperature reading (null), as on a real Raspberry Pi.
+const month = [];
+{
+  const round = (v) => Math.round(v * 10) / 10;
+  const hour = Math.floor(Date.now() / 3600000) * 3600;
+  for (let t = hour - 30 * 86400 + 3600; t <= hour; t += 3600) {
+    const daysAgo = (hour - t) / 86400;
+    const warm = daysAgo > 9 && daysAgo < 16 ? 6 * Math.sin(((daysAgo - 9) / 7) * Math.PI) : 0;
+    const update = daysAgo > 19 && daysAgo < 19.25 ? 55 : 0;
+    const cpu = wave(t, 7, 6) + update;
+    const temp = wave(t, 42, 4) + warm + update / 8;
+    const missing = daysAgo > 24 && daysAgo < 24.2;
+    const spike = (t / 3600) % 5 === 0 ? 30 : 0;           // a short spike every few hours: only the peak shows it
+    month.push([t, round(cpu), round(Math.min(100, cpu + 18 + spike)),
+      missing ? null : round(temp), missing ? null : round(temp + 3)]);
+  }
+}
+
 function system() {
   const t = Date.now() / 1000;
   const cpu = Math.max(1, wave(t, 8, 14));
@@ -196,7 +216,12 @@ createServer(async (req, res) => {
   }
   if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", version: PI_VERSION, services: states(), dns: dns() });
   if (p === "/control/system") return json(res, 200, system());
-  if (p === "/control/system/history") return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day } });
+  if (p === "/control/system/history") {
+    const period = url.searchParams.get("period") ?? "";
+    if (period === "month") return json(res, 200, { month: { step: 3600, points: month } });
+    if (period !== "") return json(res, 400, { error: "invalid_request", message: "Invalid request." });
+    return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day } });
+  }
 
   if (process.env.MOCK_SEARCH && (p === "/search" || p.startsWith("/search/"))) {
     // the host always comes from MOCK_SEARCH: only the path and the query come from the request
