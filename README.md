@@ -259,6 +259,12 @@ no Raspberry Pi needed. Install the browser once with `npx playwright install ch
 builds and tests in one go. GitHub Actions runs all of the above, plus ShellCheck and the commit convention,
 on every pull request.
 
+Every Monday, the "Content sources" workflow checks that the sources of the monthly update still answer the
+way the scripts expect: the Kiwix listing and checksums, the Protomaps builds, the Photon address dump (its
+first lines go through `build-search-index.py`), the pinned `go-pmtiles` release and the map assets. Nothing
+big is downloaded. When a check fails it opens an issue, so there is time to fix it before the 1st of the
+month; `bash .github/scripts/check-sources.sh` runs the same checks by hand.
+
 ## Troubleshooting
 
 | Symptom | Check |

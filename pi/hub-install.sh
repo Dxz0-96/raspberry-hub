@@ -29,6 +29,7 @@ PIHOLE_PORT="127.0.0.1:8080"
 OFF_AT_FIRST_INSTALL="${OFF_AT_FIRST_INSTALL-wikipedia maps}"   # services that start switched off on a new install
 PMTILES_VERSION=1.31.2
 PMTILES_SHA256=f8bd47e7ea866863489cad588fbaf2f31f42e5821f7a03f009b3769f05801cb1   # Linux arm64
+PMTILES_URL="https://github.com/protomaps/go-pmtiles/releases/download/v$PMTILES_VERSION/go-pmtiles_${PMTILES_VERSION}_Linux_arm64.tar.gz"
 
 ftl_ready() {      # waits until the Pi-hole web interface and DNS answer; $1 = host:port of the web interface
   local code
@@ -59,8 +60,7 @@ do_prepare() {
   else
     [ "$(dpkg --print-architecture)" = arm64 ] || { echo "   ERROR: only arm64 is supported" >&2; exit 1; }
     tmp=$(mktemp -d)
-    curl -fsSL --max-time 300 -o "$tmp/pmtiles.tar.gz" \
-      "https://github.com/protomaps/go-pmtiles/releases/download/v$PMTILES_VERSION/go-pmtiles_${PMTILES_VERSION}_Linux_arm64.tar.gz"
+    curl -fsSL --max-time 300 -o "$tmp/pmtiles.tar.gz" "$PMTILES_URL"
     echo "$PMTILES_SHA256  $tmp/pmtiles.tar.gz" | sha256sum -c --quiet - \
       || { rm -rf "$tmp"; echo "   ERROR: the file checksum does not match the expected one, not installing" >&2; exit 1; }
     tar -xzf "$tmp/pmtiles.tar.gz" -C "$tmp" pmtiles

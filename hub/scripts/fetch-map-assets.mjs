@@ -9,7 +9,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SOURCE = "https://protomaps.github.io/basemaps-assets";
-const DESTINATION = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "map-assets");
+// MAP_ASSETS_DIR: somewhere else, for .github/scripts/check-sources.sh, which checks that everything still downloads
+const DESTINATION = process.env.MAP_ASSETS_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "public", "map-assets");
 const FONTS = ["Noto Sans Regular", "Noto Sans Medium", "Noto Sans Italic"];
 const RANGES = [
   0, 256, 512, 768, 1024, 1280, 1536, 1792, 7680, 7936, 8192, 8448, 8704, 11520, 64256, 64512, 64768, 65024, 65280,
@@ -64,7 +65,11 @@ await Promise.all(
     while (queue.length) await download(queue.shift());
   }),
 );
+// Every font has Basic Latin glyphs: when that range is missing too, the files have moved, and the map would
+// have no labels at all.
+const lost = FONTS.filter((font) => missing.includes(`fonts/${font}/0-255.pbf`));
+if (lost.length) throw new Error(`no Basic Latin glyphs for ${lost.join(", ")}: have the files moved from ${SOURCE}?`);
 console.log(
   `Map assets: ${downloaded} downloaded (${(size / 1048576).toFixed(1)} MB), ${present} already present, ` +
-    `${missing.length} ranges without glyphs, in public/map-assets`,
+    `${missing.length} ranges without glyphs, in ${process.env.MAP_ASSETS_DIR || "public/map-assets"}`,
 );
