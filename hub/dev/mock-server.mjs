@@ -12,6 +12,8 @@
 //   MOCK_ALERTS=temperature,disk        hardware alerts to show
 //   MOCK_NO_PASSWORD=1                  as if the hub password had never been set
 //   MOCK_PI_VERSION=1.0.0               version reported by the Raspberry Pi scripts (default: the site's)
+//   MOCK_LATEST=9.1.0                   latest release found by the daily check (default: the installed one):
+//                                       the hub shows the notice, and "Update" runs a pretend upgrade
 // Without MOCK_PI, /wiki answers with a fake Wikipedia (dev/fake-wikipedia.mjs).
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -29,6 +31,42 @@ const TILES = process.env.MOCK_TILES;
 const PI = process.env.MOCK_PI ? new URL(process.env.MOCK_PI) : null;
 const PI_CA = process.env.MOCK_PI_CA ? readFileSync(process.env.MOCK_PI_CA) : undefined;
 const PI_VERSION = process.env.MOCK_PI_VERSION ?? JSON.parse(readFileSync(join(HERE, "..", "package.json"), "utf8")).version;
+const LATEST = process.env.MOCK_LATEST ?? PI_VERSION;
+const NOTES = `## [${LATEST}](https://github.com/Dxz0-96/raspberry-hub/compare/v${PI_VERSION}...v${LATEST}) (2026-11-20)
+
+### Features
+
+* **hub:** last-month view in Trends, without the data table ([#34](https://github.com/Dxz0-96/raspberry-hub/issues/34)) ([3f1ee03](https://github.com/Dxz0-96/raspberry-hub/commit/3f1ee03))
+* read the deploy settings from a .env file ([#32](https://github.com/Dxz0-96/raspberry-hub/issues/32)) ([9e68f4f](https://github.com/Dxz0-96/raspberry-hub/commit/9e68f4f))
+`;
+/** The version the Raspberry Pi scripts report: the pretend upgrade changes it, as the real one does. */
+let piVersion = PI_VERSION;
+/** /srv/hub/state/upgrade.json, written by hub-upgrade.py on the Raspberry Pi */
+let upgrade = null;
+function semver(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v ?? "");
+  return m ? m.slice(1).map(Number) : null;
+}
+function newer(a, b) {
+  const x = semver(a);
+  const y = semver(b);
+  if (!x || !y) return false;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+}
+const latest = () => ({ version: LATEST, url: `https://github.com/Dxz0-96/raspberry-hub/releases/tag/v${LATEST}`,
+  published: "2026-11-20T15:10:00Z", checked: new Date().toISOString() });
+/** A pretend upgrade: the same steps as hub-upgrade.py, a few seconds each. */
+function pretendUpgrade(version) {
+  const stamp = () => new Date().toISOString();
+  upgrade = { version, from: piVersion, step: "start", result: null, error: null, warning: null, started: stamp(), updated: stamp() };
+  ["download", "verify", "install", "check", "done"].forEach((step, i) => {
+    setTimeout(() => {
+      upgrade = { ...upgrade, step, result: step === "done" ? "ok" : null, updated: stamp() };
+      if (step === "done") piVersion = version;
+    }, (i + 1) * 3000);
+  });
+}
 
 /** Forwards the request to the real Raspberry Pi, as if it arrived at https://raspberry. */
 function toRaspberry(req, res) {
@@ -212,9 +250,13 @@ createServer(async (req, res) => {
       wikipedia: { edition: "2026-08", bytes: 31e9, result: "ok", running: false },
       maps: { build: "20261116", bytes: 4.7e9, result: "ok", running: false },
       addresses: { date: "2026-11-08", bytes: 1.1e9, result: "ok", running: false },
+      latest: latest(),
     });
   }
-  if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", version: PI_VERSION, services: states(), dns: dns() });
+  if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", version: piVersion, services: states(), dns: dns() });
+  if (p === "/control/upgrade" && req.method === "GET") {
+    return json(res, 200, { installed: piVersion, latest: { ...latest(), notes: NOTES }, newer: newer(LATEST, piVersion), progress: upgrade });
+  }
   if (p === "/control/system") return json(res, 200, system());
   if (p === "/control/system/history") {
     const period = url.searchParams.get("period") ?? "";
@@ -270,6 +312,14 @@ createServer(async (req, res) => {
       if (String(data.new ?? "").length < 8) return json(res, 400, { error: "password_too_short", message: "The new password must be at least 8 characters long." });
       password = data.new;
       return json(res, 200, { ok: true });
+    }
+    if (p === "/control/upgrade") {
+      // the same checks as start_upgrade() in hub-control.py, in the same order
+      if (String(data.version) !== LATEST) return json(res, 400, { error: "not_latest", message: "Only the latest release found by the daily check can be installed." });
+      if (!newer(LATEST, piVersion)) return json(res, 409, { error: "up_to_date", message: "This version is already installed." });
+      if (upgrade && !["done", "failed"].includes(upgrade.step)) return json(res, 409, { error: "upgrade_running", message: "An update is already running." });
+      pretendUpgrade(LATEST);
+      return json(res, 202, { ok: true });
     }
     const toggle = /^\/control\/services\/([a-z0-9-]+)\/switch$/.exec(p);
     if (toggle) {

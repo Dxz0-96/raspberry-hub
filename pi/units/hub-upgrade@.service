@@ -1,0 +1,12 @@
+[Unit]
+Description=raspberry-hub: upgrade to %i, started with the "Update" button of the hub
+# hub-control (user hubctl) may only start it, for a version number (polkit rule written by hub-service);
+# hub-control accepts only the latest release found by hub-version-check. The upgrade itself runs as root,
+# like sudo hub-install.sh upgrade, with the questions already answered in the hub.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/raspberry-hub/hub-upgrade.py %i --yes
+TimeoutStartSec=1h

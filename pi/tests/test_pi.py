@@ -75,14 +75,23 @@ def build_index(path):
     assert result.returncode == 0, result.stderr
 
 
-def start_hub_control(port, hub, state, credentials):
+def write_credentials(path, password=b"test1234"):
+    """The same format hub-control-setpass writes."""
+    salt = b"0123456789abcdef"
+    derived = hashlib.scrypt(password, salt=salt, n=16384, r=8, p=1, dklen=32, maxmem=64 * 1024 * 1024)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"username": "admin", "salt": base64.b64encode(salt).decode(),
+                   "hash": base64.b64encode(derived).decode(), "n": 16384, "r": 8, "p": 1}, f)
+
+
+def start_hub_control(port, hub, state, credentials, **extra):
     """hub-control.py on a free port, with its files in temporary folders; returns once it answers."""
     server = subprocess.Popen(
         [sys.executable, os.path.join(PI, "hub-control.py")],
         env={**os.environ, "HUB_CONTROL_PORT": str(port), "HUB_DIR": hub, "HUB_CONTROL_STATE": state,
              "HUB_CONTROL_CREDENTIALS": credentials, "HUB_CONTROL_UNITS": os.path.join(state, "units"),
              "HUB_LOG_PORT": str(free_port()), "HUB_INSECURE_COOKIE": "1",
-             "HUB_PIHOLE_API": "http://127.0.0.1:9/api"},
+             "HUB_PIHOLE_API": "http://127.0.0.1:9/api", **extra},
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     for _ in range(50):
         try:
@@ -269,6 +278,22 @@ class UpgradeFrom1x(unittest.TestCase):
 
         self.assertIn("nothing to migrate", self.migrate())
 
+    def test_new_settings_are_added_to_hub_conf(self):
+        with open(os.path.join(PI, "hub.conf"), encoding="utf-8") as f:
+            template = f.read()
+        # a 2.0 file: the settings of that time, one changed by hand, without the newer ones
+        old = template.split("# New versions")[0].replace("WIKI_VARIANT=maxi", "WIKI_VARIANT=nopic")
+        self.write("/etc/hub.conf", old)
+        self.assertIn("CHECK_FOR_UPDATES", self.migrate())
+        conf = self.read("/etc/hub.conf")
+        self.assertTrue(conf.startswith(old))
+        self.assertIn("WIKI_VARIANT=nopic", conf)
+        self.assertIn("# New versions: once a day", conf)
+        self.assertEqual(conf.count("CHECK_FOR_UPDATES=yes"), 1)
+        self.assertEqual(conf.count("NOTIFY_NEW_VERSION="), 1)
+        self.assertIn("nothing to migrate", self.migrate())
+        self.assertEqual(self.read("/etc/hub.conf"), conf)
+
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")
 class HubControl(unittest.TestCase):
@@ -279,13 +304,8 @@ class HubControl(unittest.TestCase):
         os.makedirs(os.path.join(hub, "config"))
         os.makedirs(os.path.join(hub, "icons"))
         shutil.copy(os.path.join(PI, "services.json"), os.path.join(hub, "config", "services.json"))
-        # the same format hub-control-setpass writes
         credentials = os.path.join(cls.folder, "credentials.json")
-        salt = b"0123456789abcdef"
-        derived = hashlib.scrypt(b"test1234", salt=salt, n=16384, r=8, p=1, dklen=32, maxmem=64 * 1024 * 1024)
-        with open(credentials, "w", encoding="utf-8") as f:
-            json.dump({"username": "admin", "salt": base64.b64encode(salt).decode(),
-                       "hash": base64.b64encode(derived).decode(), "n": 16384, "r": 8, "p": 1}, f)
+        write_credentials(credentials)
         cls.port = free_port()
         cls.server = start_hub_control(cls.port, hub, cls.folder, credentials)
 
@@ -349,6 +369,75 @@ class HubControl(unittest.TestCase):
         self.assertIsInstance(data["month"]["points"], list)
         status, data, _ = self.request("GET", "/control/system/history?period=year")
         self.assertEqual((status, data["error"]), (400, "invalid_request"))
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")
+class UpgradeButton(unittest.TestCase):
+    """POST /control/upgrade: the "Update" button accepts only the latest release found by the daily check."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.mkdtemp()
+        cls.hub = os.path.join(cls.folder, "hub")
+        os.makedirs(os.path.join(cls.hub, "config"))
+        os.makedirs(os.path.join(cls.hub, "state"))
+        credentials = os.path.join(cls.folder, "credentials.json")
+        write_credentials(credentials)
+        cls.version = os.path.join(cls.folder, "VERSION")
+        with open(cls.version, "w", encoding="utf-8") as f:
+            f.write("2.0.1\n")
+        cls.port = free_port()
+        cls.server = start_hub_control(cls.port, cls.hub, cls.folder, credentials, HUB_VERSION_FILE=cls.version)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.terminate()
+        cls.server.wait(10)
+        shutil.rmtree(cls.folder, ignore_errors=True)
+
+    request = HubControl.request
+
+    def state(self, name, data=None):
+        path = os.path.join(self.hub, "state", name)
+        if data is None:
+            if os.path.exists(path):
+                os.remove(path)
+            return
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(data if isinstance(data, str) else json.dumps(data))
+
+    def test_the_update_button(self):
+        self.state("latest.json")
+        status, data, _ = self.request("GET", "/control/upgrade")
+        self.assertEqual((status, data["installed"], data["latest"], data["newer"]), (200, "2.0.1", None, False))
+        hub = {"X-Hub": "1"}
+        status, data, _ = self.request("POST", "/control/upgrade", {"version": "2.1.0"}, hub)
+        self.assertEqual((status, data["error"]), (401, "login_required"))
+        _, _, cookie = self.request("POST", "/control/login", {"username": "admin", "password": "test1234"}, hub)
+        logged_in = {**hub, "Cookie": cookie.split(";", 1)[0]}
+
+        status, data, _ = self.request("POST", "/control/upgrade", {"version": "2.1.0"}, logged_in)
+        self.assertEqual((status, data["error"]), (400, "not_latest"))          # no daily check yet
+        self.state("latest.json", {"version": "2.1.0", "url": "https://example.invalid", "notes": "### Features"})
+        status, data, _ = self.request("GET", "/control/upgrade")
+        self.assertEqual((data["latest"]["version"], data["newer"]), ("2.1.0", True))
+        for wanted in ("2.1.1", "../../etc", "2.1.0; reboot", None):
+            status, data, _ = self.request("POST", "/control/upgrade", {"version": wanted}, logged_in)
+            self.assertEqual((status, data["error"]), (400, "not_latest"), wanted)
+        self.state("upgrade.json", {"version": "2.1.0", "step": "install"})
+        status, data, _ = self.request("POST", "/control/upgrade", {"version": "2.1.0"}, logged_in)
+        self.assertEqual((status, data["error"]), (409, "upgrade_running"))
+        self.state("upgrade.json", {"version": "2.1.0", "step": "failed", "error": "download_failed"})
+        self.state("maps.running", "")
+        status, data, _ = self.request("POST", "/control/upgrade", {"version": "2.1.0"}, logged_in)
+        self.assertEqual((status, data["error"]), (409, "content_update_running"))
+        self.state("maps.running")
+        # everything allowed: here systemctl refuses an unknown unit (on the Pi the polkit rule allows it)
+        status, data, _ = self.request("POST", "/control/upgrade", {"version": "2.1.0"}, logged_in)
+        self.assertEqual((status, data["error"]), (502, "upgrade_not_started"))
+        self.state("latest.json", {"version": "2.0.1"})
+        status, data, _ = self.request("POST", "/control/upgrade", {"version": "2.0.1"}, logged_in)
+        self.assertEqual((status, data["error"]), (409, "up_to_date"))
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")

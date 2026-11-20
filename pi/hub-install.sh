@@ -124,14 +124,18 @@ do_prepare() {
   echo "   polkit rule: hubctl may start and stop only $(grep -v '^#' /etc/hub-control/allowed-units | paste -sd' ' -)"
 
   echo "== Services"
-  for u in kiwix-hub.service hub-search.service hub-control.service hub-cert-sync.path hub-cert-sync.service; do
+  for u in kiwix-hub.service hub-search.service hub-control.service hub-cert-sync.path hub-cert-sync.service \
+           hub-version-check.service hub-version-check.timer hub-upgrade@.service; do
     install -o root -g root -m 644 "$HERE/units/$u" "/etc/systemd/system/$u"
   done
   systemctl daemon-reload
   systemctl enable kiwix-hub.service hub-search.service hub-control.service >/dev/null 2>&1
+  # once a day: is there a newer release? (CHECK_FOR_UPDATES=no in /etc/hub.conf turns it off)
+  systemctl enable --now hub-version-check.timer >/dev/null 2>&1
   systemctl restart hub-control.service
   systemctl start kiwix-hub.service hub-search.service 2>/dev/null || true   # they start only if the content is there
   /usr/local/sbin/hub-update.sh status
+  systemctl start --no-block hub-version-check.service 2>/dev/null || true
   echo "   hub-control running; Wikipedia and search start as soon as their content is downloaded"
 }
 

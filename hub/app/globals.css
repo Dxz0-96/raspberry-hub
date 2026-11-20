@@ -2232,3 +2232,157 @@ a.row-link:hover {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ new version and its update */
+.footer-update {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--text);
+}
+
+.footer-update p {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.footer-update p svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--gold);
+}
+
+.footer-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.footer-update-actions a {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.warning-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  font-size: 0.9375rem;
+}
+
+.warning-box svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--gold);
+}
+
+.warning-box a,
+.dialog-text a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dialog-text {
+  margin-bottom: 12px;
+  color: var(--text-2);
+  font-size: 0.9375rem;
+}
+
+.release-notes-title {
+  margin-bottom: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.release-notes {
+  max-height: 220px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.875rem;
+}
+
+.release-notes h3 {
+  margin: 8px 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.release-notes h3:first-child {
+  margin-top: 0;
+}
+
+.release-notes ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.release-notes p {
+  margin-bottom: 6px;
+}
+
+.upgrade-steps {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.upgrade-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-2);
+}
+
+.upgrade-steps li.done,
+.upgrade-steps li.current {
+  color: var(--text);
+}
+
+.upgrade-steps li.current {
+  font-weight: 600;
+}
+
+.upgrade-steps li.done svg {
+  color: var(--gold);
+}
+
+.upgrade-dot {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+}
+
+.spin {
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
