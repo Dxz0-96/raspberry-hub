@@ -1,8 +1,9 @@
 #!/bin/bash
 # Checks the external sources of the content on the Raspberry Pi the way the scripts use them, without
 # downloading the big files: the Kiwix listing, the Protomaps builds, the Photon address dump, the pinned
-# go-pmtiles release and the map assets. Run every week by .github/workflows/sources.yml, so a change on their
-# side is found before the monthly update on the Pi. From the repository root, by hand:
+# go-pmtiles release, the map assets and the latest release of the hub itself. Run every week by
+# .github/workflows/sources.yml, so a change on their side is found before the monthly update on the Pi.
+# From the repository root, by hand:
 #
 #   bash .github/scripts/check-sources.sh [report.md]
 #
@@ -117,6 +118,13 @@ else
   reason=$(grep -m1 -E '^[A-Za-z]*Error:' <<< "$output" || tail -n 1 <<< "$output")
   fail "$name" "npm run assets fails: $reason"
 fi
+
+# --------------------------------------------------------------------------- New versions (hub-update.sh check-version)
+name="Releases (GitHub API)"
+tag=$(curl -fsSL --max-time 30 -H "Accept: application/vnd.github+json" "$RELEASES_URL" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tag_name", ""))' 2>/dev/null)
+if [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then ok "$name: latest release $tag"
+else fail "$name" "$RELEASES_URL gives no release tag: the notice of new versions in the hub cannot work"; fi
 
 # --------------------------------------------------------------------------- result
 if [ ${#failures[@]} -eq 0 ]; then

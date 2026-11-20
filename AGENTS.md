@@ -77,5 +77,6 @@ The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhe
 | Language detection and switching | `hub/lib/i18n.tsx` |
 | Styles (one stylesheet, colour tokens on `:root`) | `hub/app/globals.css` |
 | Service list shipped with a new install | `pi/services.json` |
-| Install, upgrade, rollback | `pi/hub-install.sh`, `pi/hub-migrate.py` |
+| Install, upgrade, rollback | `pi/hub-install.sh`, `pi/hub-migrate.py`, `pi/hub-upgrade.py` (`hub-install.sh upgrade`) |
+| Release package | `.github/scripts/build-package.sh`, `.github/workflows/package.yml` |
 | Content downloads (Wikipedia, maps, address index) | `pi/hub-update.sh`, `pi/build-search-index.py` |

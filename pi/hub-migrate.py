@@ -10,6 +10,9 @@ hub-install.sh runs it before installing the new scripts; running it again does 
 
 Logged-in devices have to log in once more: the session cookie moved to the new /control path.
 
+Later versions add what they need here too, always idempotent: for example the settings a new version brings
+are added to /etc/hub.conf with their default, without touching the values already set.
+
 HUB_MIGRATE_ROOT=/some/folder runs it on a copy of the file system instead of / (used by the tests).
 """
 import json
@@ -154,6 +157,33 @@ def migrate_conf(path=None):
     log(f"{path} rewritten with the new setting names (old file kept as {path}.1x)")
 
 
+def add_new_conf_keys(path=None):
+    """Adds to /etc/hub.conf the settings of the template it does not have yet (a newer version brought them),
+    each with its comment, at the end. The values already there are never touched."""
+    path = path or P("/etc/hub.conf")
+    try:
+        old = open(path, encoding="utf-8").read()
+        template = open(os.path.join(HERE, "hub.conf"), encoding="utf-8").read()
+    except OSError:
+        return
+    have = set(re.findall(r"^([A-Z_]+)=", old, re.M))
+    blocks, comment = [], []
+    for line in template.splitlines():
+        key = re.match(r"^([A-Z_]+)=", line)
+        if line.startswith("#"):
+            comment.append(line)
+            continue
+        if key and key.group(1) not in have:
+            blocks.append("\n".join([*comment, line]))
+        comment = []
+    if not blocks:
+        return
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(("" if old.endswith("\n") else "\n") + "\n" + "\n\n".join(blocks) + "\n")
+    added = ", ".join(re.match(r"^([A-Z_]+)=", b.splitlines()[-1]).group(1) for b in blocks)
+    log(f"{path}: new settings added with their default: {added}")
+
+
 # --------------------------------------------------------------------------- content updates
 def migrate_update_state():
     state = os.path.join(HUB_DIR, "state")
@@ -234,6 +264,7 @@ def main():
     move(P("/var/lib/hub-control/.stato-iniziale"), P("/var/lib/hub-control/.initial-state"))
     move(P("/var/lib/hub-control/mappe.off"), P("/var/lib/hub-control/maps.off"))
     migrate_conf()
+    add_new_conf_keys()
     migrate_drop_ins()
 
     # Caddy and installed commands

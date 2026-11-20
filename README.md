@@ -72,6 +72,29 @@ https://raspberry  ->  Caddy (ports 80 and 443, certificate from the "home CA")
 
 ## Installation
 
+There are two ways: from a **release package**, on the Raspberry Pi alone, or **from a PC** with a clone of this
+repository (needed to try changes that are not released yet). Releases newer than 2.0.1 carry a package.
+
+### From a release package (no PC needed)
+
+On the Raspberry Pi, with the version you want from the [releases page](https://github.com/Dxz0-96/raspberry-hub/releases):
+
+```bash
+V=X.Y.Z
+mkdir -p ~/pi-setup/hub && cd ~/pi-setup/hub
+curl -fsSLO "https://github.com/Dxz0-96/raspberry-hub/releases/download/v$V/raspberry-hub-$V.tar.gz"
+curl -fsSL "https://github.com/Dxz0-96/raspberry-hub/releases/download/v$V/SHA256SUMS" | sha256sum -c -
+tar -xzf "raspberry-hub-$V.tar.gz" --strip-components=1 && rm "raspberry-hub-$V.tar.gz"
+sudo bash hub-install.sh
+```
+
+The package holds the `pi/` folder with the website already built (`site.tar.gz`). GitHub
+[artifact attestations](https://github.com/Dxz0-96/raspberry-hub/attestations) prove that this repository's
+release workflow built it: `gh attestation verify raspberry-hub-$V.tar.gz --repo Dxz0-96/raspberry-hub`.
+Then continue from step 3 below.
+
+### From a PC
+
 1. Clone this repository on your PC and set your Raspberry Pi address once: copy
    [`.env.example`](.env.example) to `.env` (ignored by git) and edit it:
 
@@ -108,7 +131,27 @@ downloaded by the monthly update, or right away with `sudo hub-update.sh`.
 ## Updating
 
 New versions are published on the [releases page](https://github.com/Dxz0-96/raspberry-hub/releases), with
-their notes (also in [CHANGELOG.md](CHANGELOG.md)). Version numbers follow
+their notes (also in [CHANGELOG.md](CHANGELOG.md)). Ways to hear about them:
+
+- **In the hub**: once a day the Raspberry Pi asks GitHub for the latest release (`hub-version-check.timer`),
+  and the footer says "Version X.Y.Z is available" with its notes. GitHub sees only the public address of your
+  home, as for the map downloads; `CHECK_FOR_UPDATES=no` in `/etc/hub.conf` turns the check off.
+- **A message**: `NOTIFY_NEW_VERSION=netmon` in `/etc/hub.conf` (Telegram, with the `pi-setup` package), or
+  the address of an [ntfy](https://ntfy.sh) topic, free and without an account
+  (`NOTIFY_NEW_VERSION=https://ntfy.sh/a-name-only-you-know`). One message per new version; off by default.
+- **GitHub**: "Watch" → "Custom" → "Releases" on the repository sends an email for each release (needs a
+  GitHub account), and [the releases feed](https://github.com/Dxz0-96/raspberry-hub/releases.atom) works in any
+  RSS reader without one.
+
+**Update from the hub**: next to the notice, "Update" (after logging in) shows the release notes and, for a new
+major version, the link to what changes. Once confirmed, the Raspberry Pi runs the same upgrade as
+`sudo hub-install.sh upgrade` below and the hub shows its steps: download, check, installation, check after the
+restart. The hub stops answering for a minute or two meanwhile, and the page reloads by itself when the new
+version answers. Only the latest release found by the daily check can be installed this way, never during a
+content update. Behind the button there is a systemd unit, `hub-upgrade@X.Y.Z.service`, that `hub-control` may
+only start (the same polkit rule as the switches).
+
+Version numbers follow
 [Semantic Versioning](https://semver.org/): a new **major** version (2.0.0, 3.0.0) changes something on the
 Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md](docs/upgrading.md) first.
 
@@ -121,28 +164,31 @@ Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md
 
    (`/srv/hub/icone` is where 1.x kept the icons; `--ignore-failed-read` skips whichever of the two is missing.)
 
-2. **Get the new version on the PC**, in the folder of this repository:
+2. **Update**, on the Raspberry Pi (once the installed version has this command, 2.0.1 does not yet):
 
-   ```powershell
-   git switch main
-   git pull
+   ```bash
+   sudo hub-install.sh upgrade          # the latest release
+   sudo hub-install.sh upgrade 2.1.0    # a given version
    ```
 
-3. **Update**:
+   It downloads the release package, checks its SHA-256, unpacks it into `~/pi-setup/hub` and runs its
+   `hub-install.sh`, the same installer as the first time. Before a new major version it shows the matching
+   section of [docs/upgrading.md](docs/upgrading.md) and asks for confirmation (`--yes` skips the question).
+   It never installs a pre-release or an older version, waits for a content update to finish, and at the end
+   checks that the hub answers with the new version (`sudo hub-check.sh`). The output also goes to
+   `/srv/hub/state/upgrade.log`.
 
-   ```powershell
-   .\deploy.ps1 -Update
-   ```
+   **From a PC** instead, in the folder of this repository: `git switch main`, `git pull`, then
+   `.\deploy.ps1 -Update`. It takes a few minutes and asks for your sudo password on the Raspberry Pi: it
+   installs the dependencies of the website again if they changed, builds it, copies the `pi/` folder to
+   `~/pi-setup/hub` and runs `sudo bash hub-install.sh` there.
 
-   It takes a few minutes and asks for your sudo password on the Raspberry Pi. It:
-   - installs the dependencies of the website again if they changed, and builds it;
-   - copies the `pi/` folder to `~/pi-setup/hub` on the Raspberry Pi;
-   - runs `sudo bash hub-install.sh` there, the same installer as the first time. It converts whatever changed
-     (`pi/hub-migrate.py`; nothing, when nothing changed), installs the new scripts, services, website and
-     Caddy configuration, and keeps your settings, added services, switch states, password and downloaded
-     content. Pi-hole keeps answering DNS; the hub is unreachable only for the few seconds Caddy restarts.
+   Either way, the installer converts whatever changed (`pi/hub-migrate.py`; nothing, when nothing changed),
+   installs the new scripts, services, website and Caddy configuration, and keeps your settings, added
+   services, switch states, password and downloaded content. Pi-hole keeps answering DNS; the hub is
+   unreachable only for the few seconds Caddy restarts.
 
-4. **Check** on the Raspberry Pi:
+3. **Check** on the Raspberry Pi:
 
    ```bash
    sudo hub-check.sh
@@ -152,10 +198,10 @@ Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md
    `[ ok ]` or `[ -- ]` (skipped on purpose, for example Wikipedia switched off). In the hub, the footer shows
    the same version.
 
-If the update stops with an error, its output and `sudo hub-check.sh` say which step failed; run
-`.\deploy.ps1 -Update` again once it is fixed. `sudo bash hub-install.sh disable` puts Pi-hole back on ports
-80 and 443 meanwhile (see [Rolling back](#rolling-back)). There is no automatic downgrade to an older major
-version: that is what the backup is for.
+If the update stops with an error, its output and `sudo hub-check.sh` say which step failed; run it again once
+it is fixed. `sudo bash hub-install.sh disable` puts Pi-hole back on ports 80 and 443 meanwhile (see
+[Rolling back](#rolling-back)). There is no automatic downgrade to an older major version: that is what the
+backup is for.
 
 Changes to the interface only can be published faster with `.\deploy.ps1` (without `-Update`), which copies
 just the website. If the website and the Raspberry Pi scripts end up on different versions, the footer of the
@@ -176,6 +222,7 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Change the hub username and password | On the Pi: `sudo hub-control-setpass`. Password only: from the hub, user menu, "Change password" |
 | Update Wikipedia, maps, addresses now | On the Pi: `sudo hub-update.sh` (or `wiki`, `maps`, `addresses`) |
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
+| Install a new release | "Update" in the footer of the hub, when it says a new version is available; or on the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
 | Change the Wikipedia variant or the map area | `/etc/hub.conf`, then `sudo hub-update.sh` |
 | Change the language | `EN` / `IT` in the header |
 
@@ -219,6 +266,7 @@ Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync
 |---|---|
 | At boot | Caddy, the control service and, if switched on, Wikipedia and address search start |
 | Every 5 seconds | The control service samples the hardware. The last hour and 24 hours stay in memory; the last month (one point per hour, about 30 KB) is written to `/var/lib/hub-control` only when the service stops and once a day, so a reboot does not empty it |
+| Every day | Asks GitHub for the latest release, for the notice in the hub (`CHECK_FOR_UPDATES` in `/etc/hub.conf`) |
 | Sunday 04:30 | Certificate check (`pi-setup` package) |
 | 1st of the month, 03:00 | After the system and Pi-hole: new Wikipedia edition if one came out, maps and address index rebuilt, then reboot |
 

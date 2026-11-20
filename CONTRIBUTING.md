@@ -165,6 +165,10 @@ Releases are made by [release-please](https://github.com/googleapis/release-plea
    `BREAKING CHANGE:` footer the major version ([Semantic Versioning](https://semver.org/)); `docs`, `build`
    and the other types are listed but do not trigger a release on their own.
 2. Merging the release pull request tags `vX.Y.Z` and publishes the GitHub release with the same notes.
+3. Right after, `.github/workflows/package.yml` builds `raspberry-hub-X.Y.Z.tar.gz` (the `pi/` folder with the
+   website already built, by `.github/scripts/build-package.sh`) and `SHA256SUMS`, attests them and attaches
+   them to the release: that is what `sudo hub-install.sh upgrade` installs on the Raspberry Pi. It can be
+   run again by hand for a tag ("Run workflow" on the Actions page).
 
 **Never edit versions or `CHANGELOG.md` by hand.** The version lives in `version.txt` and
 `.release-please-manifest.json`; release-please copies it into `hub/package.json` (shown in the footer of the

@@ -23,7 +23,29 @@ Copy `~/hub-backup.tar.gz` to the PC if you want it off the SD card.
 
 ### 2. Get the new version and update
 
-On the PC, in the folder of this repository:
+**On the Raspberry Pi**, once the installed version has the command (versions after 2.0.1):
+
+```bash
+sudo hub-install.sh upgrade          # the latest release
+sudo hub-install.sh upgrade 2.1.0    # a given version
+```
+
+`hub-install.sh upgrade` (the work is done by `hub-upgrade.py`):
+
+1. Asks GitHub for the release: the latest one, or the version given. Pre-releases and versions older than
+   the installed one are refused.
+2. Downloads `raspberry-hub-X.Y.Z.tar.gz` and `SHA256SUMS` from the release and checks the checksum. The
+   package is the `pi/` folder with the website already built, made by the release workflow.
+3. Before a new major version, shows the section of this page about it and asks for confirmation (`--yes`
+   answers yes in advance, for scripts).
+4. Unpacks the package into `~/pi-setup/hub` and runs its `hub-install.sh`, as in point 4 below.
+5. Waits for the hub to answer with the new version and runs `hub-check.sh --wait`.
+
+It refuses to start while another upgrade or a content update (`hub-update.sh`) is running, or with less than
+200 MB free. Its output also goes to `/srv/hub/state/upgrade.log`, and its progress to
+`/srv/hub/state/upgrade.json`.
+
+**On the PC** instead, in the folder of this repository (for changes that are not released yet, too):
 
 ```powershell
 git switch main
