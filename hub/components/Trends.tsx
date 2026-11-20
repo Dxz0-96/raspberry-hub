@@ -98,7 +98,7 @@ function Chart({
   const values = points.map((p) => p.v);
   const peaks = points.map((p) => p.peak ?? p.v);
   return (
-    <figure className="chart">
+    <figure className={dated ? "chart chart-dated" : "chart"}>
       <figcaption>
         <span className="chart-title">{title}</span>
         <span className="chart-value">{picked ? describe(picked) : current}</span>
