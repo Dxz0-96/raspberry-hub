@@ -30,7 +30,8 @@ DNS from those addresses.)
 - **Switches**: Wikipedia, maps and ad blocking can be switched off and on from the hub; the choice survives reboots.
 - **Your own links**: add the NAS, the router or the printer from the hub, with a name and an icon.
 - **Hardware monitor**: CPU, temperature, memory, microSD, network and power drawn on a picture of the board,
-  with the last hour and the last 24 hours as charts, and alerts when something needs attention.
+  with the last hour, the last 24 hours and the last month as charts (the month with the peak of every hour),
+  readable with the keyboard too, and alerts when something needs attention.
 - **DNS at home**: how a query travels from your devices through Pi-hole and Unbound, with real numbers.
 - **Offline maps** (Protomaps) with **address search** down to the house number, from OpenStreetMap data.
 - **Offline Wikipedia** (Kiwix) restyled to match the hub, in light and dark.
@@ -213,7 +214,7 @@ Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync
 | When | What |
 |---|---|
 | At boot | Caddy, the control service and, if switched on, Wikipedia and address search start |
-| Every 5 seconds | The control service samples the hardware (24 hours of history in memory, nothing on disk) |
+| Every 5 seconds | The control service samples the hardware. The last hour and 24 hours stay in memory; the last month (one point per hour, about 30 KB) is written to `/var/lib/hub-control` only when the service stops and once a day, so a reboot does not empty it |
 | Sunday 04:30 | Certificate check (`pi-setup` package) |
 | 1st of the month, 03:00 | After the system and Pi-hole: new Wikipedia edition if one came out, maps and address index rebuilt, then reboot |
 

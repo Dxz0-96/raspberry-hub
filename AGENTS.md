@@ -51,7 +51,8 @@ The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhe
 4. **Keep the mock in step with the real services.** `hub/dev/mock-server.mjs` must answer exactly like
    `hub-control.py`, `hub-search.py` and Caddy, because the Playwright tests run against it.
 5. **Respect the Pi 3.** No polling faster than the existing intervals, no new heavy dependencies, no
-   writes to the SD card in loops (the monitor keeps its history in memory on purpose).
+   writes to the SD card in loops (the monitor keeps its history in memory on purpose; only the hourly
+   month is saved, when the service stops and at most once a day).
 6. **Accessibility is tested.** Tests find elements by role and accessible name; keep labels, `aria-*`
    attributes and keyboard behaviour working, and update the tests when you rename a label.
 7. **Tests:** Playwright tests import `test` and `expect` from `hub/tests/helpers.ts` (its `page.goto`

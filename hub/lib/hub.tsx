@@ -18,6 +18,7 @@ import type {
   Dns,
   History,
   LiveState,
+  MonthHistory,
   Service,
   ServiceFields,
   StatusResponse,
@@ -123,6 +124,10 @@ interface Hub {
   content: ContentStatus | null;
   system: SystemInfo | null;
   history: History | null;
+  /** The last 30 days, one point per hour: read only while a page shows it (see showMonth) */
+  month: MonthHistory["month"] | null;
+  /** Trends calls it with true while the month is on screen, so the poll every minute stays light otherwise */
+  showMonth: (shown: boolean) => void;
   authenticated: boolean;
   user: string | null;
   configured: boolean;
@@ -157,6 +162,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [content, setContent] = useState<ContentStatus | null>(null);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [history, setHistory] = useState<History | null>(null);
+  const [month, setMonth] = useState<MonthHistory["month"] | null>(null);
+  const [monthShown, setMonthShown] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<Toast | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -186,11 +193,23 @@ export function HubProvider({ children }: { children: ReactNode }) {
       .catch(() => setSystem(null));
   }, 5000);
 
+  const readMonth = useCallback(() => {
+    api<MonthHistory>("/control/system/history?period=month")
+      .then((data) => setMonth(data.month))
+      .catch(() => setMonth(null));
+  }, []);
+
   usePolling(() => {
     void readServices();
     api<ContentStatus>("/status.json").then(setContent).catch(() => setContent(null));
     api<History>("/control/system/history").then(setHistory).catch(() => setHistory(null));
+    if (monthShown) readMonth();
   }, 60000);
+
+  // right away when the month appears, then with the poll above
+  useEffect(() => {
+    if (monthShown) readMonth();
+  }, [monthShown, readMonth]);
 
   useEffect(() => {
     if (!toast) return;
@@ -301,6 +320,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
       content,
       system,
       history,
+      month,
+      showMonth: setMonthShown,
       authenticated: status?.authenticated ?? false,
       user: status?.user ?? null,
       configured: status?.configured ?? true,
@@ -319,7 +340,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       removeService,
     }),
     [
-      services, status, content, system, history, busy, toast, loginOpen,
+      services, status, content, system, history, month, busy, toast, loginOpen,
       openLogin, closeLogin, logIn, logOut, changePassword, setSwitch, saveService, removeService,
     ],
   );

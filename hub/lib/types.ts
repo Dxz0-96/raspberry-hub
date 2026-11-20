@@ -84,6 +84,13 @@ export interface History {
   day: { step: number; points: [number, number, number, number, number][] };
 }
 
+/** /control/system/history?period=month, asked for only while the month is shown */
+export interface MonthHistory {
+  /** [start of the hour, cpu % average, cpu % peak, temperature °C average, temperature °C peak] every hour,
+   *  last 30 days; the last point is the hour so far. Temperatures are null when there was no reading. */
+  month: { step: number; points: [number, number, number, number | null, number | null][] };
+}
+
 export interface ContentStatus {
   updated: string;
   wikipedia: { edition: string | null; bytes: number | null; result: string | null; running: boolean };

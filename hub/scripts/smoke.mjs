@@ -25,6 +25,7 @@ const CHECKS = [
   ["/control/status", 200, '"authenticated"'],
   ["/control/system", 200, '"cpu"'],
   ["/control/system/history", 200, '"recent"'],
+  ["/control/system/history?period=month", 200, '"month"'],
   ["/search?q=milano", 200, '"results"'],
   ["/wiki/content/wikipedia_it/Main_Page", 200, "Welcome to Wikipedia"],
 ];

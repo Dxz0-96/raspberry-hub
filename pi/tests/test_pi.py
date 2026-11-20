@@ -72,6 +72,24 @@ def build_index(path):
     assert result.returncode == 0, result.stderr
 
 
+def start_hub_control(port, hub, state, credentials):
+    """hub-control.py on a free port, with its files in temporary folders; returns once it answers."""
+    server = subprocess.Popen(
+        [sys.executable, os.path.join(PI, "hub-control.py")],
+        env={**os.environ, "HUB_CONTROL_PORT": str(port), "HUB_DIR": hub, "HUB_CONTROL_STATE": state,
+             "HUB_CONTROL_CREDENTIALS": credentials, "HUB_CONTROL_UNITS": os.path.join(state, "units"),
+             "HUB_LOG_PORT": str(free_port()), "HUB_INSECURE_COOKIE": "1",
+             "HUB_PIHOLE_API": "http://127.0.0.1:9/api"},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    for _ in range(50):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+            break
+        except OSError:
+            time.sleep(0.1)
+    return server
+
+
 def downgrade_to_1x(path):
     """Rewrites an index in the layout of raspberry-hub 1.x (Italian names), to test --migrate."""
     db = sqlite3.connect(path)
@@ -266,19 +284,7 @@ class HubControl(unittest.TestCase):
             json.dump({"username": "admin", "salt": base64.b64encode(salt).decode(),
                        "hash": base64.b64encode(derived).decode(), "n": 16384, "r": 8, "p": 1}, f)
         cls.port = free_port()
-        cls.server = subprocess.Popen(
-            [sys.executable, os.path.join(PI, "hub-control.py")],
-            env={**os.environ, "HUB_CONTROL_PORT": str(cls.port), "HUB_DIR": hub, "HUB_CONTROL_STATE": cls.folder,
-                 "HUB_CONTROL_CREDENTIALS": credentials, "HUB_CONTROL_UNITS": os.path.join(cls.folder, "units"),
-                 "HUB_LOG_PORT": str(free_port()), "HUB_INSECURE_COOKIE": "1",
-                 "HUB_PIHOLE_API": "http://127.0.0.1:9/api"},
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        for _ in range(50):
-            try:
-                socket.create_connection(("127.0.0.1", cls.port), timeout=0.2).close()
-                break
-            except OSError:
-                time.sleep(0.1)
+        cls.server = start_hub_control(cls.port, hub, cls.folder, credentials)
 
     @classmethod
     def tearDownClass(cls):
@@ -331,6 +337,107 @@ class HubControl(unittest.TestCase):
         self.assertEqual((status, data["error"]), (404, "not_editable"))
         status, data, _ = self.request("POST", "/control/services/wikipedia/switch", {"on": False}, hub)
         self.assertEqual((status, data["error"]), (401, "login_required"))
+
+    def test_the_month_only_when_asked(self):
+        status, data, _ = self.request("GET", "/control/system/history")
+        self.assertEqual((status, sorted(data)), (200, ["day", "recent"]))
+        status, data, _ = self.request("GET", "/control/system/history?period=month")
+        self.assertEqual((status, list(data), data["month"]["step"]), (200, ["month"], 3600))
+        self.assertIsInstance(data["month"]["points"], list)
+        status, data, _ = self.request("GET", "/control/system/history?period=year")
+        self.assertEqual((status, data["error"]), (400, "invalid_request"))
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")
+class MonthHistory(unittest.TestCase):
+    """The last month in Trends: one point per hour with the average and the peak of every 5 s sample. It is
+    kept in memory and written to the state folder only when the service stops, and at most once a day, so a
+    restart does not empty it and the SD card is not written in the sampling loop."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"HUB_DIR": self.folder, "HUB_CONTROL_STATE": self.folder}):
+            self.control = load("hub_control_month", "hub-control.py")
+        self.hour = int(time.time() // 3600) * 3600 - 5 * 3600      # five hours ago, at the start of the hour
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def fill(self, monitor, hours, cpu=10.0, temp=50.0):
+        """One sample every 5 s for the given number of hours from self.hour, then the first one after them."""
+        for i in range(hours * 720 + 1):
+            monitor.add_to_hour(self.hour + i * 5, cpu, temp)
+
+    def saved(self):
+        with open(self.control.MONTH_FILE, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_one_point_per_hour_with_the_average_and_the_peak(self):
+        monitor = self.control.Monitor()
+        for i in range(720):                       # one hour, with a 5 s spike of processor and temperature
+            monitor.add_to_hour(self.hour + i * 5, 95.0 if i == 100 else 10.0, 71.0 if i == 200 else 50.0)
+        self.assertEqual(list(monitor.month), [])  # the hour is not over yet
+        monitor.add_to_hour(self.hour + 3600, 20.0, None)
+        self.assertEqual(list(monitor.month), [[self.hour, 10.1, 95.0, 50.0, 71.0]])
+        month = monitor.history("month")["month"]
+        self.assertEqual(month["step"], 3600)
+        # the hour so far comes last; no temperature reading means null, not 0
+        self.assertEqual(month["points"][-1], [self.hour + 3600, 20.0, 20.0, None, None])
+        self.assertEqual(sorted(monitor.history()), ["day", "recent"])
+
+    def test_a_clock_going_back_adds_no_point_out_of_order(self):
+        monitor = self.control.Monitor()
+        self.fill(monitor, 2)
+        monitor.add_to_hour(self.hour - 3600, 10.0, 50.0)            # closes the third hour
+        monitor.add_to_hour(self.hour, 10.0, 50.0)                   # closes the hour before the first
+        times = [p[0] for p in monitor.month]
+        self.assertEqual(times, sorted(set(times)))
+        self.assertEqual(len(times), 3)
+
+    def test_saved_and_read_back(self):
+        monitor = self.control.Monitor()
+        self.fill(monitor, 3)
+        monitor.save_month()
+        self.assertEqual([p[0] for p in self.saved()["points"]], [self.hour, self.hour + 3600, self.hour + 7200])
+        again = self.control.Monitor()
+        self.assertEqual(list(again.month), list(monitor.month))
+
+    def test_old_and_damaged_points_are_dropped_when_read(self):
+        old = self.hour - 31 * 86400
+        with open(self.control.MONTH_FILE, "w", encoding="utf-8") as f:
+            json.dump({"step": 3600, "points": [
+                [self.hour + 3600, 12.0, 30.0, None, None], [old, 1.0, 1.0, 40.0, 40.0], "nonsense",
+                [self.hour, True, 2.0, 40.0, 40.0], [self.hour, 11.0, 20.0, 45.5, 48.0], [self.hour, 1.0]]}, f)
+        monitor = self.control.Monitor()
+        self.assertEqual(list(monitor.month),
+                         [[self.hour, 11.0, 20.0, 45.5, 48.0], [self.hour + 3600, 12.0, 30.0, None, None]])
+
+    def test_a_damaged_file_means_an_empty_month(self):
+        with open(self.control.MONTH_FILE, "w", encoding="utf-8") as f:
+            f.write("{not json")
+        with contextlib.redirect_stdout(io.StringIO()) as log:
+            monitor = self.control.Monitor()
+        self.assertEqual(list(monitor.month), [])
+        self.assertIn("not readable", log.getvalue())
+
+    def test_written_at_most_once_a_day_while_running(self):
+        monitor = self.control.Monitor()
+        self.fill(monitor, 2)
+        self.assertFalse(os.path.exists(self.control.MONTH_FILE))   # started less than a day ago
+        monitor._saved -= 86401
+        self.hour += 2 * 3600
+        self.fill(monitor, 1)                                         # the next hour that closes saves
+        self.assertTrue(os.path.exists(self.control.MONTH_FILE))
+        os.remove(self.control.MONTH_FILE)
+        self.hour += 3600
+        self.fill(monitor, 1)
+        self.assertFalse(os.path.exists(self.control.MONTH_FILE))
+
+    def test_saved_when_the_service_stops(self):
+        server = start_hub_control(free_port(), self.folder, self.folder, os.path.join(self.folder, "none.json"))
+        server.terminate()                         # SIGTERM, as systemctl stop does
+        server.wait(10)
+        self.assertEqual(self.saved(), {"step": 3600, "points": []})
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")
