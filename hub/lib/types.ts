@@ -48,7 +48,11 @@ export interface StatusResponse {
   dns?: Dns | null;
 }
 
-export type HardwareAlert = "temperature" | "disk" | "power" | "load";
+/** check_failed: the check after the last boot (hub-check.service) found something that did not come back */
+export type HardwareAlert = "temperature" | "disk" | "power" | "load" | "check_failed";
+
+/** Where the content folder (/srv/hub) is: the microSD, a USB disk, or something else */
+export type StorageMedium = "sd" | "usb" | "other";
 
 export interface SystemInfo {
   time: number;
@@ -64,6 +68,9 @@ export interface SystemInfo {
     percent_full: number;
     io_rate: number;
     content: { wikipedia: number; maps: number; addresses: number };
+    /** The device that holds /srv/hub ("mmcblk0p2", "sda1"); missing on installs older than this field */
+    device?: string;
+    medium?: StorageMedium;
   };
   net: { interface: string; rx: number; tx: number; link_up: boolean; mbit: number | null };
   power: {
@@ -72,6 +79,8 @@ export interface SystemInfo {
     undervoltage_past: boolean;
     throttled_past: boolean;
   } | null;
+  /** The last hub-check.sh --report (after boot or an upgrade); null when there is none */
+  check?: { time: string; failed: number; failures: string[] } | null;
   uptime: number;
   processes: { name: string; cpu: number }[];
   alerts: HardwareAlert[];
@@ -82,13 +91,21 @@ export interface History {
   recent: { step: number; points: [number, number, number | null][] };
   /** [seconds, cpu %, temperature °C, memory %, load] every minute, last 24 hours */
   day: { step: number; points: [number, number, number, number, number][] };
+  /** Under-voltage and throttling episodes of the last 24 hours (read every 30 s) */
+  power?: { events: [number, PowerEvent][] };
 }
+
+export type PowerEvent = "undervoltage" | "throttled";
 
 /** /control/system/history?period=month, asked for only while the month is shown */
 export interface MonthHistory {
-  /** [start of the hour, cpu % average, cpu % peak, temperature °C average, temperature °C peak] every hour,
-   *  last 30 days; the last point is the hour so far. Temperatures are null when there was no reading. */
-  month: { step: number; points: [number, number, number, number | null, number | null][] };
+  /** [start of the hour, cpu % average, cpu % peak, temperature °C average, temperature °C peak, under-voltage
+   *  episodes, throttling episodes] every hour, last 30 days; the last point is the hour so far. Temperatures
+   *  are null when there was no reading. */
+  month: {
+    step: number;
+    points: [number, number, number, number | null, number | null, number?, number?][];
+  };
 }
 
 export interface ContentStatus {

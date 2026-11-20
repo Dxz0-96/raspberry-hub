@@ -2386,3 +2386,29 @@ a.row-link:hover {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ power supply episodes, disk of the content */
+.power-events {
+  margin-top: 22px;
+  font-size: 0.875rem;
+}
+
+.power-events h3 {
+  margin-bottom: 8px;
+}
+
+.power-count {
+  font-weight: 500;
+}
+
+.power-hint {
+  margin-top: 6px;
+  color: var(--raspberry);
+}
+
+.microsd-device {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}

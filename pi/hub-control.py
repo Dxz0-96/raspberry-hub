@@ -59,6 +59,9 @@ ALLOWED_UNITS_FILE = os.environ.get("HUB_CONTROL_UNITS", "/etc/hub-control/allow
 SESSIONS_FILE = os.path.join(STATE_DIR, "sessions.json")    # token hashes only, never the tokens
 MONTH_FILE = os.path.join(STATE_DIR, "history-month.json")  # the hourly history, so a restart does not empty it
 MONTH_DAYS = 30
+# written by hub-check.service after every boot (and by an upgrade): /run is in memory, not on the SD card
+CHECK_REPORT = os.environ.get("HUB_CHECK_REPORT", "/run/hub-check.json")
+MOUNTS = "/proc/self/mounts"
 INTERFACE = os.environ.get("HUB_IFACE", "eth0")
 DISK = os.environ.get("HUB_DISK", "mmcblk0")
 SECURE_COOKIE = os.environ.get("HUB_INSECURE_COOKIE") != "1"      # "1" only for testing over plain HTTP
@@ -124,8 +127,14 @@ class Monitor(threading.Thread):
         self.recent = deque(maxlen=720)           # one hour at one point every 5 s: [time, cpu, temp]
         self.day = deque(maxlen=1440)             # 24 hours at one point per minute: [time, cpu, temp, mem, load]
         # 30 days at one point per hour, from every 5 s sample of that hour, so a short spike stays visible:
-        # [start of the hour, cpu average, cpu peak, temp average, temp peak] (temperatures null if unknown)
+        # [start of the hour, cpu average, cpu peak, temp average, temp peak, under-voltage events, throttling
+        # events] (temperatures null if unknown)
         self.month = deque(maxlen=MONTH_DAYS * 24)
+        # under-voltage and throttling episodes, [time, "undervoltage" | "throttled"]: the last 24 hours are
+        # served with the history, and each hour of the month keeps how many there were
+        self.power_events = deque(maxlen=5000)
+        self._power_before = None
+        self._check = (0.0, None)
         self._minute = []
         self._hour = None
         self._saved = time.time()
@@ -199,11 +208,40 @@ class Monitor(threading.Thread):
             bits = int(match.group(1), 16)
             value = {"undervoltage": bool(bits & 0x1), "throttled": bool(bits & 0x6),
                      "undervoltage_past": bool(bits & 0x10000), "throttled_past": bool(bits & 0x60000)}
+            self._power_episodes(now, value)
         self._power = (now, value)
         return value
 
+    def _power_episodes(self, now, value):
+        """Counts an episode when a condition starts between two readings (every 30 s). A dip shorter than
+        that shows only in the "since boot" bit: its first time after a reading without it counts too."""
+        before = self._power_before
+        self._power_before = value
+        for kind in ("undervoltage", "throttled"):
+            started = value[kind] and not (before and before[kind])
+            missed = bool(before) and not value[kind] and value[f"{kind}_past"] and not before[f"{kind}_past"]
+            if started or missed:
+                with self.lock:
+                    self.power_events.append([round(now), kind])
+
+    def _read_check(self, now):
+        """The result of the last hub-check.sh --report (after boot, after an upgrade), read once a minute."""
+        when, value = self._check
+        if now - when < 60:
+            return value
+        value = None
+        try:
+            with open(CHECK_REPORT, encoding="utf-8") as f:
+                data = json.load(f)
+            value = {"time": str(data.get("time", "")), "failed": int(data.get("failed", 0)),
+                     "failures": [str(x) for x in data.get("failures", [])][:20]}
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        self._check = (now, value)
+        return value
+
     def _read_content(self, now):
-        when, value = self._content
+        when, value = self._content[:2]
         if now - when < 60:
             return value
 
@@ -218,8 +256,13 @@ class Monitor(threading.Thread):
         value = {"wikipedia": sum(size(f) for f in zims),
                  "maps": size(os.path.join(HUB_DIR, "maps", "basemap.pmtiles")),
                  "addresses": size(os.path.join(HUB_DIR, "search", "addresses.db"))}
-        self._content = (now, value)
+        device, medium = storage_device(HUB_DIR)
+        self._content = (now, value, device, medium)
         return value
+
+    def _storage(self):
+        """(device, medium) of the content folder, read with the content sizes."""
+        return self._content[2:4] if len(self._content) == 4 else ("", "other")
 
     def run(self):
         cpu0, proc0, net0, sectors0, t0 = self._cpu(), self._processes(), self._network(), self._sectors(), time.monotonic()
@@ -276,6 +319,7 @@ class Monitor(threading.Thread):
                      for n, t in sorted(ticks_by_name.items(), key=lambda x: -x[1])[:5] if t > 0]
 
         power = self._read_power(now)
+        check = self._read_check(now)
         alerts = []
         if temp is not None and temp >= 70:
             alerts.append("temperature")
@@ -285,6 +329,8 @@ class Monitor(threading.Thread):
             alerts.append("power")
         if load[1] > NCPU:
             alerts.append("load")
+        if check and check["failed"] > 0:
+            alerts.append("check_failed")
 
         speed = read_text(f"/sys/class/net/{INTERFACE}/speed").strip()
         sample = {
@@ -295,12 +341,14 @@ class Monitor(threading.Thread):
                     "swap_used": mem.get("SwapTotal", 0) - mem.get("SwapFree", 0)},
             "disk": {"total": disk_total, "used": disk_used, "percent_full": disk_full,
                      "io_rate": round(max(0, sectors1 - sectors0) * 512 / dt),
-                     "content": self._read_content(now)},
+                     "content": self._read_content(now), "device": self._storage()[0],
+                     "medium": self._storage()[1]},
             "net": {"interface": INTERFACE, "rx": round(max(0, net1[0] - net0[0]) * 8 / dt),
                     "tx": round(max(0, net1[1] - net0[1]) * 8 / dt),
                     "link_up": read_text(f"/sys/class/net/{INTERFACE}/operstate").strip() == "up",
                     "mbit": int(speed) if speed.lstrip("-").isdigit() and int(speed) > 0 else None},
             "power": power,
+            "check": check,
             "uptime": round(float((read_text("/proc/uptime").split() or ["0"])[0])),
             "processes": processes, "alerts": alerts,
         }
@@ -342,17 +390,22 @@ class Monitor(threading.Thread):
         if closed and time.time() - self._saved >= 86400:
             self.save_month()
 
-    @staticmethod
-    def _hour_point(h):
+    def _hour_point(self, h):
+        """The point of an hour; the caller holds the lock (for the power episodes)."""
+        start = h["hour"] * 3600
         temp = round(h["temp"] / h["temp_n"], 1) if h["temp_n"] else None
-        return [h["hour"] * 3600, round(h["cpu"] / h["n"], 1), round(h["cpu_peak"], 1), temp, h["temp_peak"]]
+        episodes = [kind for t, kind in self.power_events if start <= t < start + 3600]
+        return [start, round(h["cpu"] / h["n"], 1), round(h["cpu_peak"], 1), temp, h["temp_peak"],
+                episodes.count("undervoltage"), episodes.count("throttled")]
 
     @staticmethod
     def _valid_point(p):
+        """A saved point: 7 values, or 5 as written before the power episodes were counted."""
         def number(v, nullable=False):
             return (v is None and nullable) or (isinstance(v, (int, float)) and not isinstance(v, bool))
-        return (isinstance(p, list) and len(p) == 5 and isinstance(p[0], int) and not isinstance(p[0], bool)
-                and number(p[1]) and number(p[2]) and number(p[3], True) and number(p[4], True))
+        return (isinstance(p, list) and len(p) in (5, 7) and isinstance(p[0], int) and not isinstance(p[0], bool)
+                and number(p[1]) and number(p[2]) and number(p[3], True) and number(p[4], True)
+                and all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in p[5:]))
 
     def load_month(self):
         """Reads the hourly history saved by the last run, without the points older than MONTH_DAYS. A missing
@@ -366,7 +419,8 @@ class Monitor(threading.Thread):
             print(f"monitor: the month history is not readable, starting empty ({error})", flush=True)
             return
         oldest = time.time() - MONTH_DAYS * 86400
-        good = sorted((p for p in points if self._valid_point(p) and p[0] >= oldest), key=lambda p: p[0])
+        good = sorted((p + [0, 0] * (len(p) == 5) for p in points if self._valid_point(p) and p[0] >= oldest),
+                      key=lambda p: p[0])
         with self.lock:
             for p in good:
                 if not self.month or p[0] > self.month[-1][0]:
@@ -400,8 +454,31 @@ class Monitor(threading.Thread):
                     if not points or current[0] > points[-1][0]:
                         points.append(current)
                 return {"month": {"step": 3600, "points": points}}
+            day_ago = time.time() - 86400
             return {"recent": {"step": self.STEP, "points": list(self.recent)},
-                    "day": {"step": 60, "points": list(self.day)}}
+                    "day": {"step": 60, "points": list(self.day)},
+                    "power": {"events": [e for e in self.power_events if e[0] >= day_ago]}}
+
+
+def storage_device(path):
+    """(device name, "sd" | "usb" | "other") of the file system that holds path: the content folder can be
+    moved to a USB disk mounted on /srv/hub (see the README, "Content on a USB disk")."""
+    best, device = "", ""
+    for line in read_text(MOUNTS).splitlines():
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        mount = fields[1].replace("\\040", " ")
+        if (path == mount or path.startswith(mount.rstrip("/") + "/")) and len(mount) >= len(best):
+            best, device = mount, fields[0]
+    if not device.startswith("/dev/"):
+        return "", "other"
+    name = os.path.basename(os.path.realpath(device))
+    if name.startswith("mmcblk"):
+        return name, "sd"
+    if "/usb" in os.path.realpath(f"/sys/class/block/{name}"):
+        return name, "usb"
+    return name, "other"
 
 
 # =========================================================================== new versions

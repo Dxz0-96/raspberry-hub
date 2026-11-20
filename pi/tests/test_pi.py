@@ -291,6 +291,7 @@ class UpgradeFrom1x(unittest.TestCase):
         self.assertIn("# New versions: once a day", conf)
         self.assertEqual(conf.count("CHECK_FOR_UPDATES=yes"), 1)
         self.assertEqual(conf.count("NOTIFY_NEW_VERSION="), 1)
+        self.assertEqual(conf.count("WATCHDOG=no"), 1)
         self.assertIn("nothing to migrate", self.migrate())
         self.assertEqual(self.read("/etc/hub.conf"), conf)
 
@@ -363,7 +364,7 @@ class HubControl(unittest.TestCase):
 
     def test_the_month_only_when_asked(self):
         status, data, _ = self.request("GET", "/control/system/history")
-        self.assertEqual((status, sorted(data)), (200, ["day", "recent"]))
+        self.assertEqual((status, sorted(data)), (200, ["day", "power", "recent"]))
         status, data, _ = self.request("GET", "/control/system/history?period=month")
         self.assertEqual((status, list(data), data["month"]["step"]), (200, ["month"], 3600))
         self.assertIsInstance(data["month"]["points"], list)
@@ -448,7 +449,8 @@ class MonthHistory(unittest.TestCase):
 
     def setUp(self):
         self.folder = tempfile.mkdtemp()
-        with mock.patch.dict(os.environ, {"HUB_DIR": self.folder, "HUB_CONTROL_STATE": self.folder}):
+        with mock.patch.dict(os.environ, {"HUB_DIR": self.folder, "HUB_CONTROL_STATE": self.folder,
+                                          "HUB_CHECK_REPORT": os.path.join(self.folder, "hub-check.json")}):
             self.control = load("hub_control_month", "hub-control.py")
         self.hour = int(time.time() // 3600) * 3600 - 5 * 3600      # five hours ago, at the start of the hour
 
@@ -470,12 +472,12 @@ class MonthHistory(unittest.TestCase):
             monitor.add_to_hour(self.hour + i * 5, 95.0 if i == 100 else 10.0, 71.0 if i == 200 else 50.0)
         self.assertEqual(list(monitor.month), [])  # the hour is not over yet
         monitor.add_to_hour(self.hour + 3600, 20.0, None)
-        self.assertEqual(list(monitor.month), [[self.hour, 10.1, 95.0, 50.0, 71.0]])
+        self.assertEqual(list(monitor.month), [[self.hour, 10.1, 95.0, 50.0, 71.0, 0, 0]])
         month = monitor.history("month")["month"]
         self.assertEqual(month["step"], 3600)
         # the hour so far comes last; no temperature reading means null, not 0
-        self.assertEqual(month["points"][-1], [self.hour + 3600, 20.0, 20.0, None, None])
-        self.assertEqual(sorted(monitor.history()), ["day", "recent"])
+        self.assertEqual(month["points"][-1], [self.hour + 3600, 20.0, 20.0, None, None, 0, 0])
+        self.assertEqual(sorted(monitor.history()), ["day", "power", "recent"])
 
     def test_a_clock_going_back_adds_no_point_out_of_order(self):
         monitor = self.control.Monitor()
@@ -499,10 +501,13 @@ class MonthHistory(unittest.TestCase):
         with open(self.control.MONTH_FILE, "w", encoding="utf-8") as f:
             json.dump({"step": 3600, "points": [
                 [self.hour + 3600, 12.0, 30.0, None, None], [old, 1.0, 1.0, 40.0, 40.0], "nonsense",
-                [self.hour, True, 2.0, 40.0, 40.0], [self.hour, 11.0, 20.0, 45.5, 48.0], [self.hour, 1.0]]}, f)
+                [self.hour, True, 2.0, 40.0, 40.0], [self.hour, 11.0, 20.0, 45.5, 48.0], [self.hour, 1.0],
+                [self.hour + 7200, 9.0, 9.0, 41.0, 42.0, 2, 1], [self.hour + 10800, 9.0, 9.0, 41.0, 42.0, -1, 0]]}, f)
         monitor = self.control.Monitor()
+        # points saved before the power episodes were counted (5 values) get no episodes
         self.assertEqual(list(monitor.month),
-                         [[self.hour, 11.0, 20.0, 45.5, 48.0], [self.hour + 3600, 12.0, 30.0, None, None]])
+                         [[self.hour, 11.0, 20.0, 45.5, 48.0, 0, 0], [self.hour + 3600, 12.0, 30.0, None, None, 0, 0],
+                          [self.hour + 7200, 9.0, 9.0, 41.0, 42.0, 2, 1]])
 
     def test_a_damaged_file_means_an_empty_month(self):
         with open(self.control.MONTH_FILE, "w", encoding="utf-8") as f:
@@ -524,6 +529,53 @@ class MonthHistory(unittest.TestCase):
         self.hour += 3600
         self.fill(monitor, 1)
         self.assertFalse(os.path.exists(self.control.MONTH_FILE))
+
+    def test_power_episodes(self):
+        monitor = self.control.Monitor()
+        # vcgencmd get_throttled every 30 s: under-voltage starts, goes on, ends; throttling for a while; then a
+        # dip shorter than 30 s, seen only in the "since boot" bit; a start in the first reading counts too
+        readings = ["0x0", "0x10001", "0x10001", "0x10000", "0x50006", "0x50000", "0x50000"]
+        times = [self.hour + 60 + 30 * i for i in range(len(readings))]
+        with mock.patch.object(self.control, "run", side_effect=[(True, f"throttled={r}") for r in readings]):
+            for now in times:
+                monitor._read_power(now)
+        self.assertEqual(list(monitor.power_events), [[times[1], "undervoltage"], [times[4], "throttled"]])
+        with mock.patch.object(self.control, "run", side_effect=[(True, "throttled=0x0"), (True, "throttled=0x10000")]):
+            fresh = self.control.Monitor()
+            fresh._read_power(times[0])
+            fresh._read_power(times[1])
+        self.assertEqual(list(fresh.power_events), [[times[1], "undervoltage"]])
+        with mock.patch.object(self.control, "run", return_value=(True, "throttled=0x1")):
+            first = self.control.Monitor()
+            first._read_power(times[0])
+        self.assertEqual(list(first.power_events), [[times[0], "undervoltage"]])
+
+        self.fill(monitor, 1)                       # the hour of the episodes closes: they are counted in it
+        self.assertEqual(list(monitor.month)[0][5:], [1, 1])
+        self.assertEqual(monitor.history()["power"]["events"], [[times[1], "undervoltage"], [times[4], "throttled"]])
+
+    def test_the_device_of_the_content(self):
+        mounts = os.path.join(self.folder, "mounts")
+        with open(mounts, "w", encoding="utf-8") as f:
+            f.write("/dev/mmcblk0p2 / ext4 rw 0 0\n/dev/mmcblk0p1 /boot/firmware vfat rw 0 0\n"
+                    "tmpfs /run tmpfs rw 0 0\n")
+        with mock.patch.object(self.control, "MOUNTS", mounts):
+            self.assertEqual(self.control.storage_device("/srv/hub"), ("mmcblk0p2", "sd"))
+            with open(mounts, "a", encoding="utf-8") as f:
+                f.write("/dev/sda1 /srv/hub ext4 rw,nofail 0 0\n")
+            self.assertEqual(self.control.storage_device("/srv/hub")[0], "sda1")
+            self.assertEqual(self.control.storage_device("/srv/hubble"), ("mmcblk0p2", "sd"))
+            self.assertEqual(self.control.storage_device("/run/x"), ("", "other"))
+
+    def test_a_failed_check_after_boot_is_an_alert(self):
+        monitor = self.control.Monitor()
+        self.assertIsNone(monitor._read_check(1000))
+        with open(self.control.CHECK_REPORT, "w", encoding="utf-8") as f:
+            json.dump({"time": "2026-11-20T08:00:00+0100", "passed": 30, "failed": 2, "skipped": 3,
+                       "failures": ["caddy running", "hub home page"]}, f)
+        self.assertIsNone(monitor._read_check(1030))   # read once a minute
+        self.assertEqual(monitor._read_check(1061),
+                         {"time": "2026-11-20T08:00:00+0100", "failed": 2, "failures": ["caddy running", "hub home page"]})
 
     def test_saved_when_the_service_stops(self):
         server = start_hub_control(free_port(), self.folder, self.folder, os.path.join(self.folder, "none.json"))
@@ -724,6 +776,24 @@ class ReleaseUpgrade(unittest.TestCase):
         result = self.upgrade()
         self.assertEqual(result.returncode, 1)
         self.assertIn("content update is running", result.stderr)
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "hub-check.sh is a Linux script")
+class CheckReport(unittest.TestCase):
+    def test_the_report_lists_what_failed(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        report = os.path.join(folder, "hub-check.json")
+        # nothing of the hub is installed here: most checks fail, which is what the report has to say
+        result = subprocess.run(["bash", os.path.join(PI, "hub-check.sh"), "--report", report], capture_output=True,
+                                text=True, timeout=300)
+        self.assertNotEqual(result.returncode, 0)
+        with open(report, encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertGreater(data["failed"], 0)
+        self.assertEqual(len(data["failures"]), data["failed"])
+        self.assertIn("caddy running", data["failures"])
+        self.assertIn("Result:", result.stdout)
 
 
 if __name__ == "__main__":

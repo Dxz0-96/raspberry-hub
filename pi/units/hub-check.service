@@ -1,0 +1,13 @@
+[Unit]
+Description=raspberry-hub: after boot, check that everything came back (result in /run/hub-check.json)
+After=network-online.target pihole-FTL.service caddy.service hub-control.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# A failed check becomes an alert in the hub (hub-control reads the report), not a failed unit.
+ExecStart=-/usr/local/sbin/hub-check.sh --wait --report /run/hub-check.json
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

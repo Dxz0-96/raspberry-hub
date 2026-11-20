@@ -9,7 +9,8 @@
 //       "ssh -L 8443:127.0.0.1:443 user@raspberry-address"), checking its home certificate
 //   MOCK_SEARCH=http://127.0.0.1:8082   search goes to a hub-search.py started on the PC with a test index
 //   MOCK_OFF=wikipedia,maps             services that start switched off (default: wikipedia; "" = all on)
-//   MOCK_ALERTS=temperature,disk        hardware alerts to show
+//   MOCK_ALERTS=temperature,disk        hardware alerts to show (check_failed: the check after boot failed)
+//   MOCK_DISK=usb                       the content is on a USB disk (sda1) instead of the microSD
 //   MOCK_NO_PASSWORD=1                  as if the hub password had never been set
 //   MOCK_PI_VERSION=1.0.0               version reported by the Raspberry Pi scripts (default: the site's)
 //   MOCK_LATEST=9.1.0                   latest release found by the daily check (default: the installed one):
@@ -111,7 +112,7 @@ let failures = 0;
 const sessions = new Set();
 const started = Date.now();
 
-const history = { recent: [], day: [] };
+const history = { recent: [], day: [], power: [] };
 function wave(t, base, amplitude) {
   return base + amplitude * (0.5 + 0.5 * Math.sin(t / 380)) + (Math.sin(t / 47) + Math.sin(t / 13)) * amplitude * 0.12;
 }
@@ -125,6 +126,8 @@ function wave(t, base, amplitude) {
     const peak = (t > now - 30000 && t < now - 28800) || (t > now - 1500 && t < now - 1100) ? 70 : 0;
     history.day.push([t, Math.round((wave(t, 8, 12) + peak) * 10) / 10, Math.round((wave(t, 43, 7) + peak / 6) * 10) / 10, 28, 0.4]);
   }
+  // one under-voltage episode this morning, as with a weak power supply under load
+  history.power.push([now - 5 * 3600, "undervoltage"], [now - 5 * 3600 + 60, "throttled"]);
 }
 
 // The last 30 days as hub-control.py keeps them: one point per hour, [start of the hour, cpu average, cpu peak,
@@ -142,8 +145,10 @@ const month = [];
     const temp = wave(t, 42, 4) + warm + update / 8;
     const missing = daysAgo > 24 && daysAgo < 24.2;
     const spike = (t / 3600) % 5 === 0 ? 30 : 0;           // a short spike every few hours: only the peak shows it
+    // under-voltage during the busy night of the monthly update
+    const power = update ? 1 : 0;
     month.push([t, round(cpu), round(Math.min(100, cpu + 18 + spike)),
-      missing ? null : round(temp), missing ? null : round(temp + 3)]);
+      missing ? null : round(temp), missing ? null : round(temp + 3), power, power]);
   }
 }
 
@@ -157,11 +162,15 @@ function system() {
     temp: Math.round(wave(t, 44, 6) * 10) / 10,
     mem: { total: 948879360, used: 262144000 + Math.round(Math.sin(t / 60) * 6e6), swap_total: 947908608, swap_used: 1572864 },
     disk: { total: 125229338624, used: 47244640256, percent_full: 38.6, io_rate: Math.random() > 0.5 ? 40960 : 0,
-      content: { wikipedia: 31e9, maps: 4.7e9, addresses: 1.1e9 } },
+      content: { wikipedia: 31e9, maps: 4.7e9, addresses: 1.1e9 },
+      ...(process.env.MOCK_DISK === "usb" ? { device: "sda1", medium: "usb" } : { device: "mmcblk0p2", medium: "sd" }) },
     net: { interface: "eth0", rx: Math.round(1.2e6 + Math.sin(t / 9) * 4e5), tx: Math.round(3e5 + Math.cos(t / 7) * 1e5), link_up: true, mbit: 100 },
     power: { undervoltage: false, throttled: false, undervoltage_past: false, throttled_past: false },
     uptime: 166738 + Math.round((Date.now() - started) / 1000),
     processes: [{ name: "pihole-FTL", cpu: 3.1 }, { name: "kiwix-serve", cpu: 1.4 }, { name: "caddy", cpu: 0.6 }, { name: "unbound", cpu: 0.3 }, { name: "python3", cpu: 0.1 }],
+    check: process.env.MOCK_ALERTS?.includes("check_failed")
+      ? { time: new Date(started).toISOString(), failed: 2, failures: ["caddy running", "hub home page"] }
+      : { time: new Date(started).toISOString(), failed: 0, failures: [] },
     alerts: process.env.MOCK_ALERTS ? process.env.MOCK_ALERTS.split(",") : [],
   };
 }
@@ -262,7 +271,7 @@ createServer(async (req, res) => {
     const period = url.searchParams.get("period") ?? "";
     if (period === "month") return json(res, 200, { month: { step: 3600, points: month } });
     if (period !== "") return json(res, 400, { error: "invalid_request", message: "Invalid request." });
-    return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day } });
+    return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day }, power: { events: history.power } });
   }
 
   if (process.env.MOCK_SEARCH && (p === "/search" || p.startsWith("/search/"))) {
