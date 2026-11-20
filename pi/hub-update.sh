@@ -30,8 +30,11 @@ ZIM="$HUB_DIR/zim"
 MAPS="$HUB_DIR/maps"
 SEARCH="$HUB_DIR/search"
 STATE="$HUB_DIR/state"
+# The external sources. .github/scripts/check-sources.sh reads them, and the functions below, every week: a
+# change on their side is found before the monthly update.
 WIKI_URL="https://download.kiwix.org/zim/wikipedia/"
 BUILDS_URL="https://build-metadata.protomaps.dev/builds.json"
+TILES_URL="https://build.protomaps.com/"
 
 ts()  { date "+%F %T"; }
 log() { echo "$(ts) $*"; }
@@ -82,10 +85,20 @@ running() {      # $1 = wiki|maps|addresses  $2 = yes|no : tells the hub that th
 }
 
 # --------------------------------------------------------------------------- Wikipedia
+latest_wiki() {   # the newest edition of the configured language and variant in the Kiwix listing
+  curl -fsSL --max-time 120 "$WIKI_URL" \
+    | grep -oE "wikipedia_${WIKI_LANGUAGE}_all_${WIKI_VARIANT}_[0-9]{4}-[0-9]{2}\.zim" | sort -u | tail -1
+}
+wiki_size() {     # $1 = file name: its size in bytes, 0 if unknown
+  curl -fsSIL --max-time 60 "$WIKI_URL$1" | awk 'tolower($1)=="content-length:" {v=$2} END {print v+0}' | tr -d '\r'
+}
+wiki_sha256() {   # $1 = file name: the SHA-256 published next to it
+  curl -fsSL --max-time 60 "$WIKI_URL$1.sha256" | awk '{print $1}'
+}
+
 do_wiki() {
-  local pattern latest dest link current bytes needed sha expected
-  pattern="wikipedia_${WIKI_LANGUAGE}_all_${WIKI_VARIANT}_[0-9]{4}-[0-9]{2}\.zim"
-  latest=$(curl -fsSL --max-time 120 "$WIKI_URL" | grep -oE "$pattern" | sort -u | tail -1)
+  local latest dest link current bytes needed sha expected
+  latest=$(latest_wiki)
   [ -n "$latest" ] || { failed wiki "list of editions not readable ($WIKI_URL)"; return 1; }
   dest="$ZIM/$latest"
   link="$ZIM/wikipedia_${WIKI_LANGUAGE}.zim"
@@ -96,7 +109,7 @@ do_wiki() {
 
   running wiki yes
   if [ ! -s "$dest" ]; then
-    bytes=$(curl -fsSIL --max-time 60 "$WIKI_URL$latest" | awk 'tolower($1)=="content-length:" {v=$2} END {print v+0}' | tr -d '\r')
+    bytes=$(wiki_size "$latest")
     needed=$(( bytes / 1024 + 2097152 ))            # the file plus 2 GB of headroom
     if [ -f "$dest.part" ]; then needed=$(( needed - $(stat -c %s "$dest.part") / 1024 )); fi
     if [ "$(free_kb)" -lt "$needed" ]; then
@@ -106,7 +119,7 @@ do_wiki() {
     if ! wget -c -nv --tries=20 --waitretry=30 --timeout=60 -O "$dest.part" "$WIKI_URL$latest"; then
       failed wiki "download interrupted, it will resume at the next update"; return 1
     fi
-    expected=$(curl -fsSL --max-time 60 "$WIKI_URL$latest.sha256" | awk '{print $1}')
+    expected=$(wiki_sha256 "$latest")
     if [ ${#expected} -ne 64 ]; then
       failed wiki "SHA-256 checksum not available, file not installed"; return 1
     fi
@@ -152,7 +165,7 @@ do_maps() {
   running maps yes
   rm -f "$dest.new"
   log "maps: extracting the area from build $latest (box $MAP_BBOX, zoom up to $MAP_MAXZOOM)"
-  nice -n 10 pmtiles extract "https://build.protomaps.com/$latest" "$dest.new" \
+  nice -n 10 pmtiles extract "$TILES_URL$latest" "$dest.new" \
       --bbox="$MAP_BBOX" --maxzoom="$MAP_MAXZOOM" --download-threads=4 2>&1 \
     | tr '\r' '\n' | grep -vE '^[[:space:]]*$|%' | tail -n 12
   rc=${PIPESTATUS[0]}
@@ -175,17 +188,21 @@ do_estimate_maps() {
   latest=$(latest_build)
   [ -n "$latest" ] || { echo "list of builds not readable" >&2; return 1; }
   echo "Latest build: $latest"
-  pmtiles extract "https://build.protomaps.com/$latest" /dev/null \
+  pmtiles extract "$TILES_URL$latest" /dev/null \
       --bbox="$MAP_BBOX" --maxzoom="$MAP_MAXZOOM" --dry-run 2>&1 | tr '\r' '\n' | grep -vE '^[[:space:]]*$' | tail -n 8
 }
 
 # --------------------------------------------------------------------------- Addresses
+dump_md5() {      # the MD5 published next to the address dump
+  curl -fsSL --max-time 60 "$ADDRESS_DUMP_URL.md5" | awk '{print $1}'
+}
+
 do_addresses() {
   local db="$SEARCH/addresses.db" dump="$SEARCH/dump.jsonl.zst" expected md5 rc
   if [ -s "$db" ] && [ "$(age_days "$db")" -lt "$MIN_AGE_DAYS" ]; then
     log "addresses: the installed index is less than $MIN_AGE_DAYS days old, keeping it"; result addresses ok; return 0
   fi
-  expected=$(curl -fsSL --max-time 60 "$ADDRESS_DUMP_URL.md5" | awk '{print $1}')
+  expected=$(dump_md5)
   [ ${#expected} -eq 32 ] || { failed addresses "MD5 checksum of the dump not readable"; return 1; }
   if [ -s "$db" ] && [ "$(cat "$SEARCH/addresses.md5" 2>/dev/null)" = "$expected" ]; then
     log "addresses: the published dump is the one already installed"; touch "$db"; result addresses ok; return 0
@@ -237,6 +254,9 @@ do_addresses() {
 }
 
 # --------------------------------------------------------------------------- start
+# Sourced by .github/scripts/check-sources.sh for the settings and functions above: nothing below runs then.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
+
 WHAT="${1:-all}"
 # Italian names from version 1.x: pi-setup's monthly-update.sh may still call "hub-update.sh tutto".
 case "$WHAT" in

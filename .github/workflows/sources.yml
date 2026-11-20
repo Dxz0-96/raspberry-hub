@@ -1,0 +1,63 @@
+name: Content sources
+
+# Every week, checks that the external sources of the monthly content update (Kiwix, Protomaps, the Photon
+# address dump, the pinned go-pmtiles release, the map assets) still answer the way the scripts expect, so a
+# change on their side is found before the 1st of the month. See .github/scripts/check-sources.sh.
+on:
+  schedule:
+    - cron: "17 5 * * 1"     # Mondays, 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sources
+  cancel-in-progress: false
+
+env:
+  TITLE: "Content sources: the weekly check failed"
+
+jobs:
+  check:
+    name: External content sources
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write          # opens, comments on and closes the issue with the result
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"     # the Python of Debian 13, which the Raspberry Pi runs
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Check the sources
+        id: check
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/check-sources.sh "$RUNNER_TEMP/report.md"
+      - name: Open the issue, or comment on the open one
+        if: failure() && steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -s "$RUNNER_TEMP/report.md" ] || echo "The check stopped before writing its report: see $RUN_URL" > "$RUNNER_TEMP/report.md"
+          number=$(gh issue list --state open --limit 100 --json number,title --jq ".[] | select(.title == env.TITLE) | .number" | head -n 1)
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file "$RUNNER_TEMP/report.md"
+          else
+            gh issue create --title "$TITLE" --label bug --body-file "$RUNNER_TEMP/report.md"
+          fi
+      - name: Close the issue once everything answers again
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          number=$(gh issue list --state open --limit 100 --json number,title --jq ".[] | select(.title == env.TITLE) | .number" | head -n 1)
+          if [ -n "$number" ]; then
+            gh issue close "$number" --comment "Every content source answers as the scripts expect again: $RUN_URL"
+          fi
