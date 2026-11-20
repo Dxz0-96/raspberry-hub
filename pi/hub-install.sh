@@ -11,16 +11,26 @@
 #   sudo bash hub-install.sh monthly   adds the hub content to the monthly update and to the backup
 #   sudo bash hub-install.sh disable   rolls back: Pi-hole on 80/443 again, Caddy stopped
 #   sudo bash hub-install.sh           prepare + site + enable + monthly
+#
+#   sudo hub-install.sh upgrade [X.Y.Z] [--yes]
+#                                      downloads a release package from GitHub, checks it and installs it
+#                                      (the latest release unless a version is given; see hub-upgrade.py)
+#
+# After the first installation a copy lives in /usr/local/sbin, so "sudo hub-install.sh upgrade" works from
+# anywhere; the other steps then use the package in ~/pi-setup/hub.
 set -e
 export DEBIAN_FRONTEND=noninteractive
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 [ "$(id -u)" -eq 0 ] || { echo "Run it with sudo." >&2; exit 1; }
-HERE="$(cd "$(dirname "$0")" && pwd)"
-PISETUP="$(dirname "$HERE")"                      # the pi-setup package (install.sh, pihole-cert.sh, ...)
 WHAT="${1:-all}"
-# the user who owns the website (/srv/hub/site) and updates it with deploy.ps1: whoever ran sudo
-ADMIN="${ADMIN_USER:-${SUDO_USER:-}}"
+# the user who owns the website (/srv/hub/site) and updates it with deploy.ps1: whoever ran sudo, or the
+# owner of the website already installed (an upgrade started by the hub runs as root, without sudo)
+ADMIN="${ADMIN_USER:-${SUDO_USER:-$(stat -c %U /srv/hub/site 2>/dev/null || true)}}"
 [ -n "$ADMIN" ] && [ "$ADMIN" != root ] || { echo "Run it with sudo from your own user, or set ADMIN_USER=name" >&2; exit 1; }
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# the copy in /usr/local/sbin has no package next to it: use the one in ~/pi-setup/hub
+[ -f "$HERE/hub-control.py" ] || HERE="$(getent passwd "$ADMIN" | cut -d: -f6)/pi-setup/hub"
+PISETUP="$(dirname "$HERE")"                      # the pi-setup package (install.sh, pihole-cert.sh, ...)
 # the address of the Raspberry Pi on the home network: the first one of the main interface, unless given
 PI="${PI_IP:-$(hostname -I | awk '{print $1}')}"
 LIB=/usr/local/lib/raspberry-hub
@@ -94,16 +104,16 @@ do_prepare() {
   [ -e /etc/caddy/services/000-empty.caddy ] || echo "# Services hooked in with hub-service end up in this folder." > /etc/caddy/services/000-empty.caddy
 
   echo "== Scripts"
-  for f in hub-search.py hub-control.py build-search-index.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
+  for f in hub-search.py hub-control.py build-search-index.py hub-upgrade.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
   # the hub compares it with the version of the website and suggests an update when they differ
   printf '%s\n' "$HUB_VERSION" > "$LIB/VERSION"; chmod 644 "$LIB/VERSION"
   echo "   raspberry-hub $HUB_VERSION"
-  for f in hub-update.sh hub-control-setpass hub-service hub-cert-sync hub-check.sh; do
+  for f in hub-update.sh hub-control-setpass hub-service hub-cert-sync hub-check.sh hub-install.sh; do
     install -o root -g root -m 755 "$HERE/$f" "/usr/local/sbin/$f"
   done
   for f in "$LIB"/*.py /usr/local/sbin/hub-control-setpass /usr/local/sbin/hub-service; do python3 -m py_compile "$f"; done
   rm -rf "$LIB/__pycache__" /usr/local/sbin/__pycache__
-  for f in hub-update.sh hub-cert-sync hub-check.sh; do bash -n "/usr/local/sbin/$f"; done
+  for f in hub-update.sh hub-cert-sync hub-check.sh hub-install.sh; do bash -n "/usr/local/sbin/$f"; done
   [ -f /etc/hub.conf ] || install -o root -g root -m 644 "$HERE/hub.conf" /etc/hub.conf
   [ -f /srv/hub/config/services.json ] || install -o hubctl -g hubctl -m 664 "$HERE/services.json" /srv/hub/config/services.json
   for f in "$HERE"/icons/*; do
@@ -289,12 +299,16 @@ do_disable() {
 }
 
 case "$WHAT" in
+  upgrade)
+    # the installed copy when there is one: the package next to this script may be older
+    upgrader="$LIB/hub-upgrade.py"; [ -f "$upgrader" ] || upgrader="$HERE/hub-upgrade.py"
+    ADMIN_USER="$ADMIN" exec python3 "$upgrader" "${@:2}" ;;
   prepare) do_prepare ;;
   site)    do_site ;;
   enable)  do_enable ;;
   monthly) do_monthly ;;
   disable) do_disable ;;
   all)     do_prepare; do_site; do_enable; do_monthly ;;
-  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable]" >&2; exit 1 ;;
+  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable|upgrade [X.Y.Z] [--yes]]" >&2; exit 1 ;;
 esac
 echo "== Done."

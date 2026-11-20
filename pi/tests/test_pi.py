@@ -19,9 +19,12 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 PI =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -490,6 +493,148 @@ class ResponseHeaders(unittest.TestCase):
         self.assertIn(f"Set-Cookie: hub_session={token}; Path=/control; Max-Age=60; HttpOnly; SameSite=Strict"
                       + ("; Secure" if self.control.SECURE_COOKIE else ""), lines)
         self.assertEqual(log, "")
+
+
+class ReleaseUpgrade(unittest.TestCase):
+    """hub-upgrade.py (sudo hub-install.sh upgrade) against a fake GitHub release served on this computer."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.files = {}
+        test = cls
+
+        class Release(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                if self.path == "/control/status":                 # hub-control after the installation
+                    body = json.dumps({"version": test.read_version()}).encode()
+                else:
+                    body = test.files.get(self.path)
+                self.send_response(200 if body is not None else 404)
+                self.end_headers()
+                self.wfile.write(body or b"{}")
+
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Release)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.lib = os.path.join(self.root, "lib")
+        self.hub = os.path.join(self.root, "hub")
+        self.home = os.path.join(self.root, "pi-setup", "hub")
+        os.makedirs(self.lib)
+        os.makedirs(os.path.join(self.hub, "state"))
+        self.write_version("2.0.1")
+        ReleaseUpgrade.read_version = staticmethod(lambda: self.read(os.path.join(self.lib, "VERSION")).strip())
+        self.files.clear()
+        self.publish("2.1.0", latest=True)
+        self.publish("3.0.0")
+        self.publish("2.2.0", prerelease=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    @staticmethod
+    def read(path):
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def write_version(self, value):
+        with open(os.path.join(self.lib, "VERSION"), "w", encoding="utf-8") as f:
+            f.write(value + "\n")
+
+    def publish(self, version, latest=False, prerelease=False, checksum=None):
+        """A release on the fake GitHub: its API entry, the package and SHA256SUMS."""
+        name = f"raspberry-hub-{version}"
+        folder = os.path.join(self.root, "build", name)
+        os.makedirs(folder)
+        with open(os.path.join(folder, "hub-install.sh"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(f'#!/bin/bash\necho "installer of {version}: $1"\nprintf "{version}\\n" > "$HUB_LIB/VERSION"\n')
+        with open(os.path.join(folder, "UPGRADING.md"), "w", encoding="utf-8") as f:
+            f.write("# Upgrading\n\n## From 2.x to 3.0\n\nEverything moved.\n\n## From 1.x to 2.0\n\nOld news.\n")
+        package = os.path.join(self.root, "build", name + ".tar.gz")
+        with tarfile.open(package, "w:gz") as archive:
+            archive.add(folder, name)
+        with open(package, "rb") as f:
+            data = f.read()
+        entry = json.dumps({"tag_name": f"v{version}", "html_url": f"https://example.invalid/v{version}",
+                            "prerelease": prerelease, "body": "### Features\n\n* something"}).encode()
+        self.files[f"/api/tags/v{version}"] = entry
+        if latest:
+            self.files["/api/latest"] = entry
+        self.files[f"/download/v{version}/{name}.tar.gz"] = data
+        self.files[f"/download/v{version}/SHA256SUMS"] = \
+            f"{checksum or hashlib.sha256(data).hexdigest()}  {name}.tar.gz\n".encode()
+
+    def upgrade(self, *args):
+        env = {**os.environ, "HUB_RELEASES_API": self.base + "/api", "HUB_RELEASES_DOWNLOAD": self.base + "/download",
+               "HUB_LIB": self.lib, "HUB_DIR": self.hub, "HUB_HOME": self.home, "ADMIN_USER": "pi",
+               "HUB_UPGRADE_LOCK": os.path.join(self.root, "lock"), "HUB_CONTROL_URL": self.base + "/control/status",
+               "HUB_CHECK": os.path.join(self.root, "no-hub-check"), "HUB_UPGRADE_ANY_USER": "1"}
+        return subprocess.run([sys.executable, os.path.join(PI, "hub-upgrade.py"), *args], capture_output=True,
+                              text=True, env=env, stdin=subprocess.DEVNULL, timeout=120)
+
+    def progress(self):
+        return json.loads(self.read(os.path.join(self.hub, "state", "upgrade.json")))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "runs the installer of the package with bash")
+    def test_the_latest_release_is_installed_and_checked(self):
+        result = self.upgrade()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("installer of 2.1.0: all", result.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(self.home, "UPGRADING.md")))
+        self.assertEqual(self.read(os.path.join(self.lib, "VERSION")).strip(), "2.1.0")
+        progress = self.progress()
+        self.assertEqual((progress["from"], progress["version"], progress["step"], progress["result"]),
+                         ("2.0.1", "2.1.0", "done", "ok"))
+        self.assertIn("installer of 2.1.0", self.read(os.path.join(self.hub, "state", "upgrade.log")))
+        again = self.upgrade()
+        self.assertEqual(again.returncode, 0)
+        self.assertIn("2.1.0 is already installed", again.stdout)
+
+    def test_a_package_that_does_not_match_its_checksum_is_not_installed(self):
+        self.publish("2.1.1", checksum="0" * 64)
+        result = self.upgrade("2.1.1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("SHA-256", result.stderr)
+        self.assertEqual((self.progress()["step"], self.progress()["error"]), ("failed", "checksum_mismatch"))
+        self.assertFalse(os.path.exists(self.home))
+
+    def test_a_new_major_version_asks_first(self):
+        result = self.upgrade("3.0.0")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Everything moved.", result.stdout)          # the section about 3.0, not the others
+        self.assertNotIn("Old news.", result.stdout)
+        self.assertIn("--yes", result.stderr)
+        self.assertEqual(self.progress()["error"], "confirmation_needed")
+        self.assertFalse(os.path.exists(self.home))
+
+    def test_older_versions_and_pre_releases_are_refused(self):
+        self.write_version("2.1.0")
+        self.publish("2.0.9")
+        result = self.upgrade("2.0.9")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("older", result.stderr)
+        result = self.upgrade("2.2.0")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not a published release", result.stderr)
+        result = self.upgrade("2.3")
+        self.assertIn("not a version", result.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.hub, "state", "upgrade.json")))
+
+    def test_not_during_a_content_update(self):
+        with open(os.path.join(self.hub, "state", "maps.running"), "w", encoding="utf-8"):
+            pass
+        result = self.upgrade()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("content update is running", result.stderr)
 
 
 if __name__ == "__main__":

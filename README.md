@@ -72,6 +72,29 @@ https://raspberry  ->  Caddy (ports 80 and 443, certificate from the "home CA")
 
 ## Installation
 
+There are two ways: from a **release package**, on the Raspberry Pi alone, or **from a PC** with a clone of this
+repository (needed to try changes that are not released yet). Releases newer than 2.0.1 carry a package.
+
+### From a release package (no PC needed)
+
+On the Raspberry Pi, with the version you want from the [releases page](https://github.com/Dxz0-96/raspberry-hub/releases):
+
+```bash
+V=X.Y.Z
+mkdir -p ~/pi-setup/hub && cd ~/pi-setup/hub
+curl -fsSLO "https://github.com/Dxz0-96/raspberry-hub/releases/download/v$V/raspberry-hub-$V.tar.gz"
+curl -fsSL "https://github.com/Dxz0-96/raspberry-hub/releases/download/v$V/SHA256SUMS" | sha256sum -c -
+tar -xzf "raspberry-hub-$V.tar.gz" --strip-components=1 && rm "raspberry-hub-$V.tar.gz"
+sudo bash hub-install.sh
+```
+
+The package holds the `pi/` folder with the website already built (`site.tar.gz`). GitHub
+[artifact attestations](https://github.com/Dxz0-96/raspberry-hub/attestations) prove that this repository's
+release workflow built it: `gh attestation verify raspberry-hub-$V.tar.gz --repo Dxz0-96/raspberry-hub`.
+Then continue from step 3 below.
+
+### From a PC
+
 1. Clone this repository on your PC and set your Raspberry Pi address once: copy
    [`.env.example`](.env.example) to `.env` (ignored by git) and edit it:
 
@@ -121,28 +144,31 @@ Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md
 
    (`/srv/hub/icone` is where 1.x kept the icons; `--ignore-failed-read` skips whichever of the two is missing.)
 
-2. **Get the new version on the PC**, in the folder of this repository:
+2. **Update**, on the Raspberry Pi (once the installed version has this command, 2.0.1 does not yet):
 
-   ```powershell
-   git switch main
-   git pull
+   ```bash
+   sudo hub-install.sh upgrade          # the latest release
+   sudo hub-install.sh upgrade 2.1.0    # a given version
    ```
 
-3. **Update**:
+   It downloads the release package, checks its SHA-256, unpacks it into `~/pi-setup/hub` and runs its
+   `hub-install.sh`, the same installer as the first time. Before a new major version it shows the matching
+   section of [docs/upgrading.md](docs/upgrading.md) and asks for confirmation (`--yes` skips the question).
+   It never installs a pre-release or an older version, waits for a content update to finish, and at the end
+   checks that the hub answers with the new version (`sudo hub-check.sh`). The output also goes to
+   `/srv/hub/state/upgrade.log`.
 
-   ```powershell
-   .\deploy.ps1 -Update
-   ```
+   **From a PC** instead, in the folder of this repository: `git switch main`, `git pull`, then
+   `.\deploy.ps1 -Update`. It takes a few minutes and asks for your sudo password on the Raspberry Pi: it
+   installs the dependencies of the website again if they changed, builds it, copies the `pi/` folder to
+   `~/pi-setup/hub` and runs `sudo bash hub-install.sh` there.
 
-   It takes a few minutes and asks for your sudo password on the Raspberry Pi. It:
-   - installs the dependencies of the website again if they changed, and builds it;
-   - copies the `pi/` folder to `~/pi-setup/hub` on the Raspberry Pi;
-   - runs `sudo bash hub-install.sh` there, the same installer as the first time. It converts whatever changed
-     (`pi/hub-migrate.py`; nothing, when nothing changed), installs the new scripts, services, website and
-     Caddy configuration, and keeps your settings, added services, switch states, password and downloaded
-     content. Pi-hole keeps answering DNS; the hub is unreachable only for the few seconds Caddy restarts.
+   Either way, the installer converts whatever changed (`pi/hub-migrate.py`; nothing, when nothing changed),
+   installs the new scripts, services, website and Caddy configuration, and keeps your settings, added
+   services, switch states, password and downloaded content. Pi-hole keeps answering DNS; the hub is
+   unreachable only for the few seconds Caddy restarts.
 
-4. **Check** on the Raspberry Pi:
+3. **Check** on the Raspberry Pi:
 
    ```bash
    sudo hub-check.sh
@@ -152,10 +178,10 @@ Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md
    `[ ok ]` or `[ -- ]` (skipped on purpose, for example Wikipedia switched off). In the hub, the footer shows
    the same version.
 
-If the update stops with an error, its output and `sudo hub-check.sh` say which step failed; run
-`.\deploy.ps1 -Update` again once it is fixed. `sudo bash hub-install.sh disable` puts Pi-hole back on ports
-80 and 443 meanwhile (see [Rolling back](#rolling-back)). There is no automatic downgrade to an older major
-version: that is what the backup is for.
+If the update stops with an error, its output and `sudo hub-check.sh` say which step failed; run it again once
+it is fixed. `sudo bash hub-install.sh disable` puts Pi-hole back on ports 80 and 443 meanwhile (see
+[Rolling back](#rolling-back)). There is no automatic downgrade to an older major version: that is what the
+backup is for.
 
 Changes to the interface only can be published faster with `.\deploy.ps1` (without `-Update`), which copies
 just the website. If the website and the Raspberry Pi scripts end up on different versions, the footer of the
@@ -176,6 +202,7 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Change the hub username and password | On the Pi: `sudo hub-control-setpass`. Password only: from the hub, user menu, "Change password" |
 | Update Wikipedia, maps, addresses now | On the Pi: `sudo hub-update.sh` (or `wiki`, `maps`, `addresses`) |
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
+| Install a new release | On the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
 | Change the Wikipedia variant or the map area | `/etc/hub.conf`, then `sudo hub-update.sh` |
 | Change the language | `EN` / `IT` in the header |
 
