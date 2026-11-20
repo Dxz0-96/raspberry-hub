@@ -10,12 +10,13 @@ import "@fontsource/ibm-plex-mono/latin-500.css";
 import "./globals.css";
 import { HubProvider } from "@/lib/hub";
 import { I18nProvider, LANGUAGE_SCRIPT } from "@/lib/i18n";
+import { DemoBanner } from "@/components/DemoBanner";
 import { LoginDialog } from "@/components/LoginDialog";
 import { Toast } from "@/components/Toast";
 
 export const metadata: Metadata = {
   description: "The home hub: Pi-hole, offline Wikipedia, maps and the state of the Raspberry Pi.",
-  icons: { icon: "/icon.svg" },
+  icons: { icon: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/icon.svg` },
 };
 
 export const viewport: Viewport = {
@@ -44,6 +45,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <I18nProvider>
           <HubProvider>
+            <DemoBanner />
             {children}
             <LoginDialog />
             <Toast />

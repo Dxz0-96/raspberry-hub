@@ -44,6 +44,21 @@ jobs:
           # the installation on Debian too: the release changes the version in pi/hub-install.sh
           gh workflow run install.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
 
+  # A release was just published: the demo on GitHub Pages shows it (demo.yml, started as a separate run, so a
+  # problem with Pages never touches the release).
+  demo:
+    name: Demo on GitHub Pages
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      # on main, the commit just tagged: the github-pages environment deploys only from the default branch
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run demo.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
+
   # A release was just published: attach the package that sudo hub-install.sh upgrade installs.
   package:
     name: Release package
