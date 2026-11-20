@@ -153,6 +153,7 @@ export const it: Messages = {
     start_failed: "Il Raspberry non è riuscito ad avviare il servizio.",
     stop_failed: "Il Raspberry non è riuscito a fermare il servizio.",
     no_switch: "Questo servizio non ha un interruttore.",
+    internal_error: "Qualcosa non ha funzionato sul Raspberry. Riprova.",
   },
   alerts: {
     temperature: (celsius) => `Temperatura alta: ${celsius} °C. Controlla che il Raspberry abbia aria attorno.`,

@@ -7,9 +7,11 @@ layout, upgrade a fake 1.x installation with hub-migrate.py and talk to hub-cont
 The hub-control test needs Linux (/proc); the others run anywhere.
 """
 import base64
+import contextlib
 import hashlib
 import http.client
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -20,8 +22,9 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
-PI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PI =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def load(name, file):
@@ -328,6 +331,58 @@ class HubControl(unittest.TestCase):
         self.assertEqual((status, data["error"]), (404, "not_editable"))
         status, data, _ = self.request("POST", "/control/services/wikipedia/switch", {"on": False}, hub)
         self.assertEqual((status, data["error"]), (401, "login_required"))
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")
+class ResponseHeaders(unittest.TestCase):
+    """Handler.reply() is the only way out for response headers: nothing with a control character in it is
+    sent, because http.server writes header values exactly as given and a CR or LF would split the response."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"HUB_DIR": cls.folder, "HUB_CONTROL_STATE": cls.folder}):
+            cls.control = load("hub_control", "hub-control.py")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.folder, ignore_errors=True)
+
+    def reply(self, headers):
+        """What reply() writes on the connection: the header lines and the JSON body."""
+        handler = self.control.Handler.__new__(self.control.Handler)     # no socket: the response goes to a buffer
+        handler.request_version = "HTTP/1.1"
+        handler.requestline = "POST /control/login HTTP/1.1"
+        handler.wfile = io.BytesIO()
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            handler.reply(200, {"ok": True}, headers)
+        head, _, body = handler.wfile.getvalue().partition(b"\r\n\r\n")
+        return head.decode("latin-1").split("\r\n"), json.loads(body), log.getvalue()
+
+    def test_a_header_with_a_line_break_is_never_sent(self):
+        lines, body, log = self.reply([("Set-Cookie", "hub_session=x\r\nX-Injected: 1")])
+        self.assertEqual(lines[0], "HTTP/1.1 500 Internal Server Error")
+        self.assertEqual(body["error"], "internal_error")
+        self.assertFalse([line for line in lines if line.lower().startswith(("set-cookie", "x-injected"))])
+        self.assertIn("'Set-Cookie'", log)
+
+    def test_other_control_characters_are_refused_too(self):
+        for value in ("a\nb", "a\rb", "a\x00b", "a\x7fb"):
+            lines, body, _ = self.reply([("X-Test", value)])
+            self.assertEqual(body["error"], "internal_error", repr(value))
+        lines, body, _ = self.reply([("X-Test\r\n", "ok")])
+        self.assertEqual(body["error"], "internal_error")
+
+    def test_the_session_cookie_still_goes_out(self):
+        token = "Ab0_-" * 9                                              # the shape of secrets.token_urlsafe(32)
+        cookie = self.control.Handler.cookie(None, token, 60)
+        lines, body, log = self.reply([cookie])
+        self.assertEqual(lines[0], "HTTP/1.1 200 OK")
+        self.assertEqual(body, {"ok": True})
+        self.assertIn(f"Set-Cookie: hub_session={token}; Path=/control; Max-Age=60; HttpOnly; SameSite=Strict"
+                      + ("; Secure" if self.control.SECURE_COOKIE else ""), lines)
+        self.assertEqual(log, "")
 
 
 if __name__ == "__main__":
