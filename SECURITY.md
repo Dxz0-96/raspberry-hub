@@ -30,6 +30,11 @@ parts that change the system:
 - write requests must carry the `X-Hub: 1` header and a same-origin `Origin`;
 - `hub-control.py` runs as an unprivileged user and can start or stop only the systemd units listed in
   `/etc/hub-control/allowed-units`, enforced by a polkit rule;
-- uploaded icons are checked by content type, size-limited and served with a sandboxing Content Security Policy.
+- uploaded icons are checked by content type, size-limited and served with a sandboxing Content Security Policy;
+- the pages of the hub cannot be shown inside another site (`frame-ancestors 'self'` and
+  `X-Frame-Options: SAMEORIGIN`, against clickjacking) and their Content Security Policy lets them load and send
+  data only to the Raspberry Pi itself (see the `(hub_pages)` snippet in `pi/Caddyfile`). There is no HSTS on
+  purpose: the certificate comes from the home CA, and new devices download it over plain HTTP
+  (`http://raspberry/ca.crt`), which HSTS would block.
 
 Exposing the hub to the internet is out of scope and not recommended.

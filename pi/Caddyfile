@@ -9,6 +9,22 @@
 	}
 }
 
+# ---------------------------------------------------------------- pages of the hub (the website and its error pages)
+# - frame-ancestors / X-Frame-Options: no other site may show the hub inside one of its pages, where a click on
+#   what looks like something else would log in, flip a switch or start an update (clickjacking).
+# - The rest of the policy: the pages load scripts, styles, fonts, images and data only from the Raspberry Pi
+#   itself, and send forms nowhere else. 'unsafe-inline' is needed by the static export, which puts its start-up
+#   data and the theme and language scripts inline. Wikipedia (/wiki/) is not covered: the hub shows it in a
+#   frame of its own, and it has no buttons that change anything.
+# No Strict-Transport-Security: the certificate comes from the home CA, and a device that has not imported it
+# yet downloads it from http://raspberry/ca.crt, which HSTS would turn into an error that cannot be skipped.
+(hub_pages) {
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+		X-Frame-Options SAMEORIGIN
+	}
+}
+
 # ---------------------------------------------------------------- HTTP: only the CA and the redirect to HTTPS
 :80 {
 	handle /ca.crt {
@@ -120,6 +136,7 @@ https://raspberry, https://pi.hole, https://@RASPBERRY_IP@ {
 	# The hub website (Next.js static export)
 	handle {
 		root * /srv/hub/site
+		import hub_pages
 		@immutable path /_next/static/*
 		header @immutable Cache-Control "public, max-age=31536000, immutable"
 		try_files {path} {path}/index.html {path}.html
@@ -128,6 +145,7 @@ https://raspberry, https://pi.hole, https://@RASPBERRY_IP@ {
 
 	handle_errors {
 		root * /srv/hub/site
+		import hub_pages
 		@unavailable expression {http.error.status_code} == 502 || {http.error.status_code} == 503
 		handle @unavailable {
 			rewrite * /unavailable/index.html
