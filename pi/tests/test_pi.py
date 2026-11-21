@@ -636,6 +636,44 @@ class ResponseHeaders(unittest.TestCase):
         self.assertEqual(log, "")
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")
+class Upstream(unittest.TestCase):
+    """The resolver shown under DNS at home comes from Unbound's forward file: the first forward-addr wins."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"HUB_DIR": cls.folder, "HUB_CONTROL_STATE": cls.folder}):
+            cls.control = load("hub_control_upstream", "hub-control.py")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.folder, ignore_errors=True)
+
+    def upstream(self, text):
+        path = os.path.join(self.folder, "forward-dot.conf")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        with mock.patch.object(self.control, "UNBOUND_FILE", path):
+            return self.control.upstream()
+
+    def test_the_first_resolver_is_named(self):
+        text = ('forward-zone:\n    name: "."\n    forward-tls-upstream: yes\n'
+                "    forward-addr: 192.0.2.1@853#dns.adguard-dns.com\n"
+                "    forward-addr: 2001:db8::1@853#dns.adguard-dns.com\n"
+                "    forward-addr: 192.0.2.2@853#cloudflare-dns.com\n")
+        self.assertEqual(self.upstream(text), {"name": "AdGuard", "encrypted": True})
+        self.assertEqual(self.upstream(text.replace("dns.adguard-dns.com", "dns11.quad9.net")),
+                         {"name": "Quad9", "encrypted": True})
+
+    def test_an_unknown_resolver_keeps_its_name(self):
+        self.assertEqual(self.upstream("forward-zone:\n    forward-addr: 192.0.2.1@853#dns.example.net\n"),
+                         {"name": "dns.example.net", "encrypted": False})
+
+    def test_no_forward_file_means_the_root_servers(self):
+        self.assertEqual(self.upstream(""), {"name": "root_servers", "encrypted": False})
+
+
 class ReleaseUpgrade(unittest.TestCase):
     """hub-upgrade.py (sudo hub-install.sh upgrade) against a fake GitHub release served on this computer."""
 

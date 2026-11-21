@@ -607,6 +607,69 @@ def start_upgrade(version):
     return 202, "", ""
 
 
+# =========================================================================== new versions
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def semver(text):
+    match = SEMVER.match(str(text or ""))
+    return tuple(int(x) for x in match.groups()) if match else None
+
+
+def upgrade_status():
+    """What the hub needs for the notice and the "Update" button."""
+    installed = read_text(VERSION_FILE).strip() or None
+    latest = read_json(LATEST_FILE)
+    latest = latest if isinstance(latest, dict) and semver(latest.get("version")) else None
+    progress = read_json(UPGRADE_FILE)
+    return {"installed": installed, "latest": latest,
+            "newer": bool(latest and semver(installed) and semver(latest["version"]) > semver(installed)),
+            "progress": progress if isinstance(progress, dict) else None}
+
+
+def upgrade_running(progress):
+    """An upgrade that has not ended and wrote in the last 2 hours (a reboot in the middle ends it)."""
+    if not progress or progress.get("step") in (None, "done", "failed"):
+        return False
+    try:
+        return time.time() - os.path.getmtime(UPGRADE_FILE) < 7200
+    except OSError:
+        return False
+
+
+def start_upgrade(version):
+    """(HTTP status, code, English message). Only the latest release found by the daily check is accepted:
+    never a string or an address from the request, which is only compared with it."""
+    info = upgrade_status()
+    latest = info["latest"]
+    if not latest or str(version) != latest["version"]:
+        return 400, "not_latest", "Only the latest release found by the daily check can be installed."
+    if not semver(info["installed"]):
+        return 409, "version_unknown", "The installed version is unknown: update with sudo hub-install.sh upgrade."
+    if not info["newer"]:
+        return 409, "up_to_date", "This version is already installed."
+    if upgrade_running(info["progress"]):
+        return 409, "upgrade_running", "An update is already running."
+    try:
+        running = [f for f in os.listdir(os.path.join(HUB_DIR, "state")) if f.endswith(".running")]
+    except OSError:
+        running = []
+    if running:
+        return 409, "content_update_running", "Wikipedia, the maps or the addresses are being updated: try again later."
+    if shutil.disk_usage("/").free < UPGRADE_FREE_BYTES:
+        return 507, "no_space", "Not enough free space on the Raspberry Pi for the update."
+    ok, _ = run(["systemctl", "--no-ask-password", "--no-block", "start", f"hub-upgrade@{latest['version']}.service"],
+                timeout=30)
+    if not ok:
+        return 502, "upgrade_not_started", "The Raspberry Pi could not start the update."
+    return 202, "", ""
+
+
 # =========================================================================== services
 services_lock = threading.Lock()
 
@@ -865,13 +928,14 @@ class RequestLog(threading.Thread):
 
 
 def upstream():
-    """Who Unbound asks: Quad9 over encrypted DNS, or the root servers directly."""
+    """Who Unbound asks first (a public resolver over encrypted DNS), or the root servers directly."""
     text = read_text(UNBOUND_FILE)
     names = re.findall(r"forward-addr:\s*\S+#(\S+)", text)
     if not names:
         return {"name": "root_servers", "encrypted": False}
     name = names[0]
-    for key, readable in (("quad9", "Quad9"), ("cloudflare", "Cloudflare"), ("google", "Google")):
+    for key, readable in (("quad9", "Quad9"), ("cloudflare", "Cloudflare"), ("google", "Google"),
+                          ("adguard", "AdGuard")):
         if key in name.lower():
             name = readable
     return {"name": name, "encrypted": bool(re.search(r"forward-tls-upstream:\s*yes", text))}

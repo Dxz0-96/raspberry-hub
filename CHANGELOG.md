@@ -6,6 +6,21 @@ All notable changes to this project. From 2.0.0 on, entries are written by
 [Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
 [docs/upgrading.md](docs/upgrading.md).
 
+## [2.1.0](https://github.com/Dxz0-96/raspberry-hub/compare/v2.0.1...v2.1.0) (2026-11-20)
+
+
+### Features
+
+* **hub:** last-month view in Trends, without the data table ([#34](https://github.com/Dxz0-96/raspberry-hub/issues/34)) ([3f1ee03](https://github.com/Dxz0-96/raspberry-hub/commit/3f1ee03635abc0b6588e916db023671f53c86b03))
+* read the deploy settings from a .env file ([#32](https://github.com/Dxz0-96/raspberry-hub/issues/32)) ([9e68f4f](https://github.com/Dxz0-96/raspberry-hub/commit/9e68f4f1de1f0ac36503c8736252c34322339f6d)), closes [#16](https://github.com/Dxz0-96/raspberry-hub/issues/16)
+* release packages ready to install, and upgrade from the Pi ([#35](https://github.com/Dxz0-96/raspberry-hub/issues/35)) ([b12eb4a](https://github.com/Dxz0-96/raspberry-hub/commit/b12eb4a7849e1ae759d919865c4b98fbeac6b5d3))
+
+
+### Bug Fixes
+
+* deploy.ps1 reinstalls changed dependencies, and a step-by-step update guide ([#14](https://github.com/Dxz0-96/raspberry-hub/issues/14)) ([34328a3](https://github.com/Dxz0-96/raspberry-hub/commit/34328a379747d8d23b5cc7931765d9a007797ed3))
+* **pi:** never send a response header with a control character ([#31](https://github.com/Dxz0-96/raspberry-hub/issues/31)) ([0742e40](https://github.com/Dxz0-96/raspberry-hub/commit/0742e40d147a1492d16a7208c3e75c568f3417ff))
+
 ## [2.0.1](https://github.com/Dxz0-96/raspberry-hub/compare/v2.0.0...v2.0.1) (2026-11-18)
 
 
