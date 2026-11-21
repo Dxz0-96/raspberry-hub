@@ -1,5 +1,6 @@
 // Mock Raspberry Pi to try the hub on a PC: answers like hub-control.py, hub-search.py and Caddy,
-// and serves the built site (out/ folder). No real data: everything stays in memory.
+// and serves the built site (out/ folder). No real data: everything stays in memory. The made-up readings,
+// history and places come from dev/pretend-pi.mjs, shared with the demo on GitHub Pages (lib/demo.ts).
 //
 //   npm run build && npm run mock        then open http://localhost:8790
 //   test login: admin / test1234
@@ -9,7 +10,8 @@
 //       "ssh -L 8443:127.0.0.1:443 user@raspberry-address"), checking its home certificate
 //   MOCK_SEARCH=http://127.0.0.1:8082   search goes to a hub-search.py started on the PC with a test index
 //   MOCK_OFF=wikipedia,maps             services that start switched off (default: wikipedia; "" = all on)
-//   MOCK_ALERTS=temperature,disk        hardware alerts to show
+//   MOCK_ALERTS=temperature,disk        hardware alerts to show (check_failed: the check after boot failed)
+//   MOCK_DISK=usb                       the content is on a USB disk (sda1) instead of the microSD
 //   MOCK_NO_PASSWORD=1                  as if the hub password had never been set
 //   MOCK_PI_VERSION=1.0.0               version reported by the Raspberry Pi scripts (default: the site's)
 //   MOCK_LATEST=9.1.0                   latest release found by the daily check (default: the installed one):
@@ -22,6 +24,7 @@ import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { fakeWikipedia } from "./fake-wikipedia.mjs";
+import { NAS, contentStatus, dns, makeHistory, makeMonth, readings, search, serviceStates } from "./pretend-pi.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SITE = join(HERE, "..", "out");
@@ -102,7 +105,7 @@ const TYPES = {
 };
 
 let services = JSON.parse(readFileSync(join(HERE, "..", "..", "pi", "services.json"), "utf8")).services;
-services.push({ id: "u-nas", name: "NAS", description: "Home photos and documents", url: "http://192.168.1.20/", type: "link", added: true });
+services.push({ ...NAS });
 const icons = new Map();
 const off = new Set((process.env.MOCK_OFF ?? "wikipedia").split(",").filter(Boolean));
 let blocking = true;
@@ -111,91 +114,12 @@ let failures = 0;
 const sessions = new Set();
 const started = Date.now();
 
-const history = { recent: [], day: [] };
-function wave(t, base, amplitude) {
-  return base + amplitude * (0.5 + 0.5 * Math.sin(t / 380)) + (Math.sin(t / 47) + Math.sin(t / 13)) * amplitude * 0.12;
-}
-{
-  const now = Math.floor(Date.now() / 1000);
-  for (let t = now - 3600; t <= now; t += 5) {
-    const peak = t > now - 1500 && t < now - 1100 ? 70 : 0;
-    history.recent.push([t, Math.round((wave(t, 8, 14) + peak) * 10) / 10, Math.round((wave(t, 44, 6) + peak / 6) * 10) / 10]);
-  }
-  for (let t = now - 86400; t <= now; t += 60) {
-    const peak = (t > now - 30000 && t < now - 28800) || (t > now - 1500 && t < now - 1100) ? 70 : 0;
-    history.day.push([t, Math.round((wave(t, 8, 12) + peak) * 10) / 10, Math.round((wave(t, 43, 7) + peak / 6) * 10) / 10, 28, 0.4]);
-  }
-}
-
-// The last 30 days as hub-control.py keeps them: one point per hour, [start of the hour, cpu average, cpu peak,
-// temperature average, temperature peak], the last one being the hour so far. A warm week, a busy night of the
-// monthly update and a few hours without a temperature reading (null), as on a real Raspberry Pi.
-const month = [];
-{
-  const round = (v) => Math.round(v * 10) / 10;
-  const hour = Math.floor(Date.now() / 3600000) * 3600;
-  for (let t = hour - 30 * 86400 + 3600; t <= hour; t += 3600) {
-    const daysAgo = (hour - t) / 86400;
-    const warm = daysAgo > 9 && daysAgo < 16 ? 6 * Math.sin(((daysAgo - 9) / 7) * Math.PI) : 0;
-    const update = daysAgo > 19 && daysAgo < 19.25 ? 55 : 0;
-    const cpu = wave(t, 7, 6) + update;
-    const temp = wave(t, 42, 4) + warm + update / 8;
-    const missing = daysAgo > 24 && daysAgo < 24.2;
-    const spike = (t / 3600) % 5 === 0 ? 30 : 0;           // a short spike every few hours: only the peak shows it
-    month.push([t, round(cpu), round(Math.min(100, cpu + 18 + spike)),
-      missing ? null : round(temp), missing ? null : round(temp + 3)]);
-  }
-}
-
-function system() {
-  const t = Date.now() / 1000;
-  const cpu = Math.max(1, wave(t, 8, 14));
-  return {
-    time: Math.round(t), hostname: "raspberry", model: "Raspberry Pi 3 Model B Rev 1.2", ip: "192.168.1.10",
-    cpu: { usage: Math.round(cpu * 10) / 10, cores: [cpu * 1.3, cpu * 0.7, cpu * 1.1, cpu * 0.9].map((v) => Math.round(v * 10) / 10),
-      load: [0.42, 0.31, 0.2], mhz: 1200, count: 4 },
-    temp: Math.round(wave(t, 44, 6) * 10) / 10,
-    mem: { total: 948879360, used: 262144000 + Math.round(Math.sin(t / 60) * 6e6), swap_total: 947908608, swap_used: 1572864 },
-    disk: { total: 125229338624, used: 47244640256, percent_full: 38.6, io_rate: Math.random() > 0.5 ? 40960 : 0,
-      content: { wikipedia: 31e9, maps: 4.7e9, addresses: 1.1e9 } },
-    net: { interface: "eth0", rx: Math.round(1.2e6 + Math.sin(t / 9) * 4e5), tx: Math.round(3e5 + Math.cos(t / 7) * 1e5), link_up: true, mbit: 100 },
-    power: { undervoltage: false, throttled: false, undervoltage_past: false, throttled_past: false },
-    uptime: 166738 + Math.round((Date.now() - started) / 1000),
-    processes: [{ name: "pihole-FTL", cpu: 3.1 }, { name: "kiwix-serve", cpu: 1.4 }, { name: "caddy", cpu: 0.6 }, { name: "unbound", cpu: 0.3 }, { name: "python3", cpu: 0.1 }],
-    alerts: process.env.MOCK_ALERTS ? process.env.MOCK_ALERTS.split(",") : [],
-  };
-}
-
-function states() {
-  const result = {};
-  for (const s of services) {
-    if (s.type === "pihole") result[s.id] = { state: blocking ? "on" : "paused", detail: "", switch: true };
-    else if (s.type === "unit") result[s.id] = off.has(s.id) ? { state: "off", detail: "", switch: true } : { state: "on", detail: "", switch: true };
-    else if (s.id === "u-nas") result[s.id] = { state: "unreachable", detail: "no_response", host: "192.168.1.20", switch: false };
-    else result[s.id] = { state: "on", detail: "", switch: false };
-  }
-  const t = Date.now() / 1000;
-  const visits = { pihole: Math.round(280 + 120 * Math.sin(t / 40)), wikipedia: 35, maps: Math.round(60 + 60 * Math.sin(t / 25)), netmon: 2 };
-  for (const [id, value] of Object.entries(visits)) if (result[id]) result[id].activity = value;
-  return result;
-}
-
-function dns() {
-  return {
-    per_minute: Math.round(280 + 120 * Math.sin(Date.now() / 40000)), total: 27844, blocked: 13559,
-    percent_blocked: 48.7, cached: 9667, forwarded: 2347, clients: 9, blocked_domains: 756319,
-    upstream: { name: "Quad9", encrypted: true },
-  };
-}
-
-const PLACES = [
-  { type: "place", name: "Milano", detail: "Milano, Lombardia", class: "city", lat: 45.4642, lon: 9.19, bbox: [9.04, 45.386, 9.278, 45.536] },
-  { type: "street", name: "Via Giuseppe Garibaldi", detail: "20121 Milano", lat: 45.4762, lon: 9.1854, bbox: [9.184, 45.472, 9.187, 45.481] },
-  { type: "house_number", name: "Via Giuseppe Garibaldi 12", detail: "20121 Milano", lat: 45.4738, lon: 9.1851, bbox: null, exact_number: true },
-  { type: "place", name: "Roma", detail: "Roma, Lazio", class: "city", lat: 41.8933, lon: 12.4829, bbox: [12.234, 41.655, 12.856, 42.141] },
-  { type: "street", name: "Via Toledo", detail: "80132 Napoli", lat: 40.839, lon: 14.2484, bbox: [14.247, 40.835, 14.25, 40.846] },
-  { type: "street", name: "Via Roma", detail: "10121 Torino", lat: 45.0667, lon: 7.682, bbox: [7.68, 45.062, 7.685, 45.071] },
-];
+// The made-up readings, shared with the demo on GitHub Pages (dev/pretend-pi.mjs)
+const history = makeHistory();
+const month = makeMonth();
+const system = () => readings({ started, disk: process.env.MOCK_DISK === "usb" ? "usb" : "sd",
+  alerts: process.env.MOCK_ALERTS ? process.env.MOCK_ALERTS.split(",") : [] });
+const states = () => serviceStates(services, { off, blocking });
 
 function json(res, status, body, extra = {}) {
   const data = Buffer.from(JSON.stringify(body));
@@ -244,15 +168,7 @@ createServer(async (req, res) => {
   if (req.method === "OPTIONS") return res.writeHead(204).end();
 
   if (p === "/services.json") return json(res, 200, { services });
-  if (p === "/status.json") {
-    return json(res, 200, {
-      updated: new Date().toISOString(),
-      wikipedia: { edition: "2026-08", bytes: 31e9, result: "ok", running: false },
-      maps: { build: "20261116", bytes: 4.7e9, result: "ok", running: false },
-      addresses: { date: "2026-11-08", bytes: 1.1e9, result: "ok", running: false },
-      latest: latest(),
-    });
-  }
+  if (p === "/status.json") return json(res, 200, contentStatus(latest()));
   if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", version: piVersion, services: states(), dns: dns() });
   if (p === "/control/upgrade" && req.method === "GET") {
     return json(res, 200, { installed: piVersion, latest: { ...latest(), notes: NOTES }, newer: newer(LATEST, piVersion), progress: upgrade });
@@ -262,7 +178,7 @@ createServer(async (req, res) => {
     const period = url.searchParams.get("period") ?? "";
     if (period === "month") return json(res, 200, { month: { step: 3600, points: month } });
     if (period !== "") return json(res, 400, { error: "invalid_request", message: "Invalid request." });
-    return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day } });
+    return json(res, 200, { recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day }, power: { events: history.power } });
   }
 
   if (process.env.MOCK_SEARCH && (p === "/search" || p.startsWith("/search/"))) {
@@ -284,12 +200,7 @@ createServer(async (req, res) => {
     if (off.has("wikipedia")) return res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" }).end("Wikipedia switched off from the hub");
     if (fakeWikipedia(req, res, url)) return;
   }
-  if (p === "/search") {
-    const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
-    const words = q.split(/\s+/).filter(Boolean);
-    const results = PLACES.filter((l) => words.every((w) => `${l.name} ${l.detail}`.toLowerCase().includes(w)));
-    return json(res, 200, { q, results, ms: 3 });
-  }
+  if (p === "/search") return json(res, 200, search(url.searchParams.get("q")));
 
   if (p.startsWith("/control/") && (req.method === "POST" || req.method === "DELETE")) {
     if (req.headers["x-hub"] !== "1") return json(res, 403, { error: "foreign_request", message: "Request not accepted." });

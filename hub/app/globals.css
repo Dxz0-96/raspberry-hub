@@ -2386,3 +2386,58 @@ a.row-link:hover {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ power supply episodes, disk of the content */
+.power-events {
+  margin-top: 22px;
+  font-size: 0.875rem;
+}
+
+.power-events h3 {
+  margin-bottom: 8px;
+}
+
+.power-count {
+  font-weight: 500;
+}
+
+.power-hint {
+  margin-top: 6px;
+  color: var(--raspberry);
+}
+
+.microsd-device {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+/* ------------------------------------------------------------------ the demo on GitHub Pages */
+.demo-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--gold) 16%, var(--page));
+  color: var(--text);
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.demo-banner svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--gold);
+}
+
+.demo-banner p {
+  max-width: 90ch;
+}
+
+.demo-banner a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

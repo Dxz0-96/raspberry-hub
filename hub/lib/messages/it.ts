@@ -164,9 +164,13 @@ export const it: Messages = {
   },
   alerts: {
     temperature: (celsius) => `Temperatura alta: ${celsius} °C. Controlla che il Raspberry abbia aria attorno.`,
-    disk: (percent) => `microSD quasi piena: ${percent}% occupato. Libera spazio o passa a una scheda più capiente.`,
-    power: "Alimentazione insufficiente: il Raspberry rallenta per proteggersi. Usa un alimentatore da 2,5 A e un cavo corto.",
+    disk: (percent, where) =>
+      `Spazio quasi esaurito sul${where === "microSD" ? "la microSD" : ` ${where}`}: ${percent}% occupato. Libera spazio o passa a uno più capiente.`,
+    power:
+      "Alimentazione insufficiente: il Raspberry rallenta per proteggersi, e la sottotensione può rovinare la microSD. Usa l'alimentatore ufficiale da 2,5 A, con il suo cavo corto.",
     load: (load, cores) => `Carico alto da più di cinque minuti: ${load} su ${cores} core.`,
+    checkFailed: (count) =>
+      `Dopo l'ultimo avvio ${count === 1 ? "un controllo" : `${count} controlli`} dell'hub non sono andati a buon fine: sul Raspberry esegui sudo hub-check.sh per vedere quali.`,
   },
   trends: {
     title: "Andamento",
@@ -184,6 +188,11 @@ export const it: Messages = {
     emptyHistory: "Lo storico si riempie man mano: torna tra qualche minuto.",
     emptyMonth: "Il mese si riempie un'ora alla volta: torna tra un paio d'ore.",
     topProcesses: "Processi più attivi",
+    power: "Alimentazione",
+    powerNone: "Nessuna sottotensione né rallentamento in questo periodo.",
+    powerEvents: (undervoltage, throttled) =>
+      `Sottotensione: ${undervoltage === 1 ? "una volta" : `${undervoltage} volte`}. Rallentamento: ${throttled === 1 ? "una volta" : `${throttled} volte`}.`,
+    powerHint: "La sottotensione consuma la microSD: usa l'alimentatore ufficiale da 2,5 A, con il suo cavo corto.",
     noData: "Nessun dato dal Raspberry.",
   },
   network: {
@@ -210,7 +219,8 @@ export const it: Messages = {
     maps: "Mappe",
     addresses: "Indirizzi",
     free: "Libero",
-    storageLabel: (parts) => `Spazio sulla microSD: ${parts}.`,
+    storageLabel: (where, parts) => `Spazio sul${where === "microSD" ? "la microSD" : ` ${where}`}: ${parts}.`,
+    medium: { sd: "microSD", usb: "disco USB", other: "disco" },
   },
   home: {
     boardLink: "Apri il dettaglio dell'hardware",
@@ -275,6 +285,12 @@ export const it: Messages = {
       no_admin: "Il Raspberry non riesce a capire a quale utente appartiene l'hub.",
       internal_error: "Qualcosa non ha funzionato sul Raspberry.",
     },
+  },
+  demo: {
+    label: "Demo",
+    text: (user, password) =>
+      `Questa è una demo: il Raspberry e i suoi dati sono inventati, e quello che cambi si perde ricaricando la pagina. Per provare gli interruttori accedi come ${user} con la password ${password}.`,
+    install: "Come installarlo",
   },
   unavailable: {
     title: "Questo servizio è spento o non risponde",

@@ -161,9 +161,11 @@ export function HardwareAlerts() {
           <TriangleAlert size={18} aria-hidden="true" />
           <span>
             {kind === "temperature" && t.alerts.temperature(decimal(system.temp ?? 0, locale))}
-            {kind === "disk" && t.alerts.disk(Math.round(system.disk.percent_full).toString())}
+            {kind === "disk" && t.alerts.disk(Math.round(system.disk.percent_full).toString(),
+              t.network.medium[system.disk.medium ?? "sd"] ?? t.network.medium.other)}
             {kind === "power" && t.alerts.power}
             {kind === "load" && t.alerts.load(decimal(system.cpu.load[1], locale), system.cpu.count)}
+            {kind === "check_failed" && t.alerts.checkFailed(system.check?.failed ?? 1)}
           </span>
         </li>
       ))}
@@ -195,6 +197,20 @@ export function Trends() {
     }
     const raw = period === "hour" ? history?.recent.points : history?.day.points;
     return (raw ?? []).filter((p) => p[2] !== null).map((p) => ({ t: p[0], v: p[2] as number }));
+  }, [period, history, month]);
+  // under-voltage and throttling episodes in the period shown
+  const power = useMemo(() => {
+    if (period === "month") {
+      const points = month?.points ?? [];
+      return { undervoltage: points.reduce((n, p) => n + (p[5] ?? 0), 0), throttled: points.reduce((n, p) => n + (p[6] ?? 0), 0) };
+    }
+    const events = history?.power?.events ?? [];
+    const since = (history?.recent.points.at(-1)?.[0] ?? Date.now() / 1000) - (period === "hour" ? 3600 : 86400);
+    const shown = events.filter(([t]) => t >= since);
+    return {
+      undervoltage: shown.filter(([, kind]) => kind === "undervoltage").length,
+      throttled: shown.filter(([, kind]) => kind === "throttled").length,
+    };
   }, [period, history, month]);
   const range = useMemo(() => {
     if (temp.length === 0) return { min: 30, max: 70 };
@@ -243,6 +259,19 @@ export function Trends() {
             </ol>
           ) : (
             <p className="chart-empty">{t.trends.noData}</p>
+          )}
+          {system?.power !== null && (history || month) && (
+            <div className="power-events">
+              <h3>{t.trends.power}</h3>
+              {power.undervoltage + power.throttled === 0 ? (
+                <p>{t.trends.powerNone}</p>
+              ) : (
+                <>
+                  <p className="power-count">{t.trends.powerEvents(power.undervoltage, power.throttled)}</p>
+                  {power.undervoltage > 0 && <p className="power-hint">{t.trends.powerHint}</p>}
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

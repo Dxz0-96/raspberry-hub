@@ -165,9 +165,13 @@ export const en = {
   } as Record<string, string>,
   alerts: {
     temperature: (celsius: string) => `High temperature: ${celsius} °C. Check that the Raspberry Pi has air around it.`,
-    disk: (percent: string) => `microSD almost full: ${percent}% used. Free up some space or move to a larger card.`,
-    power: "Insufficient power supply: the Raspberry Pi slows down to protect itself. Use a 2.5 A power supply and a short cable.",
+    disk: (percent: string, where: string) =>
+      `${where} almost full: ${percent}% used. Free up some space or move to a larger one.`,
+    power:
+      "Insufficient power supply: the Raspberry Pi slows down to protect itself, and under-voltage can damage the microSD. Use the official 2.5 A power supply, with its short cable.",
     load: (load: string, cores: number) => `High load for more than five minutes: ${load} on ${cores} cores.`,
+    checkFailed: (count: number) =>
+      `After the last start, ${count === 1 ? "1 check" : `${count} checks`} of the hub failed: run sudo hub-check.sh on the Raspberry Pi to see which.`,
   },
   trends: {
     title: "Trends",
@@ -188,6 +192,11 @@ export const en = {
     emptyHistory: "The history fills up over time: come back in a few minutes.",
     emptyMonth: "The month fills up one hour at a time: come back in a couple of hours.",
     topProcesses: "Busiest processes",
+    power: "Power supply",
+    powerNone: "No under-voltage or throttling in this period.",
+    powerEvents: (undervoltage: number, throttled: number) =>
+      `Under-voltage: ${undervoltage === 1 ? "once" : `${undervoltage} times`}. Throttling: ${throttled === 1 ? "once" : `${throttled} times`}.`,
+    powerHint: "Under-voltage wears out the microSD: use the official 2.5 A power supply, with its short cable.",
     noData: "No data from the Raspberry Pi.",
   },
   network: {
@@ -214,7 +223,8 @@ export const en = {
     maps: "Maps",
     addresses: "Addresses",
     free: "Free",
-    storageLabel: (parts: string) => `Space on the microSD: ${parts}.`,
+    storageLabel: (where: string, parts: string) => `Space on the ${where}: ${parts}.`,
+    medium: { sd: "microSD", usb: "USB disk", other: "disk" } as Record<string, string>,
   },
   home: {
     boardLink: "Open the hardware details",
@@ -279,6 +289,12 @@ export const en = {
       no_admin: "The Raspberry Pi cannot tell which user the hub belongs to.",
       internal_error: "Something went wrong on the Raspberry Pi.",
     } as Record<string, string>,
+  },
+  demo: {
+    label: "Demo",
+    text: (user: string, password: string) =>
+      `This is a demo: the Raspberry Pi and its data are made up, and what you change is forgotten when the page reloads. To try the switches, log in as ${user} with the password ${password}.`,
+    install: "How to install it",
   },
   unavailable: {
     title: "This service is off or not responding",

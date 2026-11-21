@@ -11,6 +11,10 @@ off, and see how the hardware is doing. Everything runs on the Raspberry Pi, wit
 
 ![The hub on a desktop browser, light theme](docs/screenshots/home-light.png)
 
+**[Try the demo](https://dxz0-96.github.io/raspberry-hub/)**: the hub of the latest release in your browser, with
+a made-up Raspberry Pi. The switches and "Add service" work (log in as `admin`, password `demo`) and everything
+goes back to the start when the page reloads; the map has central Rome only, and Wikipedia is switched off.
+
 | Dark theme | Phone | Italian |
 |---|---|---|
 | ![Dark theme](docs/screenshots/home-dark.png) | ![Phone](docs/screenshots/phone.png) | ![Italian interface](docs/screenshots/home-italian.png) |
@@ -32,6 +36,8 @@ DNS from those addresses.)
 - **Hardware monitor**: CPU, temperature, memory, microSD, network and power drawn on a picture of the board,
   with the last hour, the last 24 hours and the last month as charts (the month with the peak of every hour),
   readable with the keyboard too, and alerts when something needs attention.
+- **Looking after the Pi**: how often the power supply was too weak, a check after every boot, an optional
+  hardware watchdog, and support for the content on a USB disk (see [below](#looking-after-the-raspberry-pi)).
 - **DNS at home**: how a query travels from your devices through Pi-hole and Unbound, with real numbers.
 - **Offline maps** (Protomaps) with **address search** down to the house number, from OpenStreetMap data.
 - **Offline Wikipedia** (Kiwix) restyled to match the hub, in light and dark.
@@ -264,7 +270,7 @@ Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync
 
 | When | What |
 |---|---|
-| At boot | Caddy, the control service and, if switched on, Wikipedia and address search start |
+| At boot | Caddy, the control service and, if switched on, Wikipedia and address search start; then `hub-check.service` checks that everything came back (a failure becomes an alert in the hub) |
 | Every 5 seconds | The control service samples the hardware. The last hour and 24 hours stay in memory; the last month (one point per hour, about 30 KB) is written to `/var/lib/hub-control` only when the service stops and once a day, so a reboot does not empty it |
 | Every day | Asks GitHub for the latest release, for the notice in the hub (`CHECK_FOR_UPDATES` in `/etc/hub.conf`) |
 | Sunday 04:30 | Certificate check (`pi-setup` package) |
@@ -272,6 +278,42 @@ Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync
 
 Offline Wikipedia has no incremental updates: each edition is a new file (about 30 GB), downloaded only when
 it comes out. Maps (4.7 GB) and addresses are rebuilt when they are more than 20 days old.
+
+## Looking after the Raspberry Pi
+
+What shortens the life of a Raspberry Pi 3 and of its microSD, and what the hub does about it:
+
+- **Power supply.** The control service reads the power state every 30 seconds. Trends shows how many times the
+  voltage dropped too low (under-voltage) or the processor slowed down to protect itself (throttling) in the
+  period shown, and the alert says what to do. Under-voltage is the first cause of corrupted microSD cards: use
+  the official 2.5 A power supply, with its short cable. A dip shorter than 30 seconds is counted too, but only
+  the first one after each reading that had none.
+- **Check after boot.** `hub-check.service` runs `hub-check.sh --wait` after every boot (the monthly update
+  ends with one) and writes the result to `/run/hub-check.json`, in memory. If something did not come back,
+  the hub shows an alert; `sudo hub-check.sh` on the Pi says what. The parts of the `pi-setup` package are
+  skipped when it is not installed.
+- **Hardware watchdog** (off unless you turn it on). With `WATCHDOG=yes` in `/etc/hub.conf` and then
+  `sudo hub-install.sh watchdog`, systemd keeps telling the watchdog of the board that all is well: a Raspberry
+  Pi that hangs reboots by itself after about 14 seconds. `WATCHDOG=no` and the same command turn it off.
+- **Content on a USB disk.** Every month the maps (about 5 GB) and the address index (1 GB, with up to 6 GB of
+  temporary files) are rebuilt, and each new Wikipedia edition is about 30 GB: that is a lot of writing for a
+  microSD. A USB SSD mounted on `/srv/hub` takes it all, with no change to the hub, and the storage panel then
+  says "USB disk". The USB ports of a Pi 3 share 1.2 A: an SSD may need a powered adapter.
+
+  ```bash
+  lsblk -f                                    # find the disk, for example sda1, and its UUID
+  # sudo mkfs.ext4 -L hub /dev/sda1           # only for a new disk: this erases it
+  sudo systemctl stop caddy kiwix-hub hub-search hub-control
+  sudo mount /dev/sda1 /mnt && sudo cp -a /srv/hub/. /mnt/ && sudo umount /mnt
+  sudo mv /srv/hub /srv/hub.sd && sudo mkdir /srv/hub
+  echo "UUID=<the UUID of sda1> /srv/hub ext4 defaults,noatime,nofail 0 2" | sudo tee -a /etc/fstab
+  sudo systemctl daemon-reload && sudo mount /srv/hub
+  sudo systemctl start hub-control kiwix-hub hub-search caddy && sudo hub-check.sh
+  sudo rm -rf /srv/hub.sd                     # once everything works
+  ```
+
+  `nofail` lets the Raspberry Pi start without the disk; the hub website lives on it too, so without the disk
+  only Pi-hole answers until it is back (`sudo mount /srv/hub`, then restart the services as above).
 
 ## Development
 
@@ -288,6 +330,12 @@ To try the map and search with the real data of the Raspberry Pi: open a tunnel 
 repository root (ignored by git), then run `node dev/mock-pi.mjs` and open `http://localhost:8791/maps/`.
 The maps must be switched on. Through the tunnel the first load is slower than at home: connected directly
 to the Raspberry Pi each map tile arrives in 50-150 ms.
+
+The demo on GitHub Pages is the same site built with `npm run demo` (into `out-demo/`, never the site copied to
+the Raspberry Pi): `lib/demo.ts` answers in the browser what the Raspberry Pi would, with the made-up data of
+`dev/pretend-pi.mjs`, the same the mock serves. `node scripts/serve-demo.mjs` shows it on
+`http://localhost:8796/raspberry-hub/`, `npm run test:demo` tests it. `.github/workflows/demo.yml` publishes it
+after every release, or by hand from the Actions page.
 
 The maps page keeps the position in the address (`/maps/#position=zoom/lat/lon`): reloading keeps it, and
 such an address can be saved as a bookmark.
@@ -310,6 +358,12 @@ The Playwright tests run on the built site with a small map of central Rome
 no Raspberry Pi needed. Install the browser once with `npx playwright install chromium`; `npm run test:all`
 builds and tests in one go. GitHub Actions runs all of the above, plus ShellCheck and the commit convention,
 on every pull request.
+
+Pull requests that touch `pi/` also run `hub-install.sh` for real ("Install on Debian"): in a Debian 13 arm64
+container with systemd, on GitHub's arm64 runners, on a clean system and on a 1.x installation, twice (the second
+run must change nothing), then they check the services, the API and the conversions. Pi-hole is not there, so
+the `enable` step is not run. The same runs on the next Debian release (testing) without blocking, to see
+breakages before people upgrade their Raspberry Pi. `.github/scripts/install-test.sh` is the script.
 
 Every Monday, the "Content sources" workflow checks that the sources of the monthly update still answer the
 way the scripts expect: the Kiwix listing and checksums, the Protomaps builds, the Photon address dump (its

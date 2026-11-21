@@ -49,7 +49,9 @@ The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhe
    `pi/tests/test_pi.py`. Existing installations upgrade by re-running `hub-install.sh`; never require a
    reinstall.
 4. **Keep the mock in step with the real services.** `hub/dev/mock-server.mjs` must answer exactly like
-   `hub-control.py`, `hub-search.py` and Caddy, because the Playwright tests run against it.
+   `hub-control.py`, `hub-search.py` and Caddy, because the Playwright tests run against it. The demo on GitHub
+   Pages (`hub/lib/demo.ts`) answers in the browser with the same made-up data (`hub/dev/pretend-pi.mjs`): a new
+   endpoint or field goes in both, and `npm run demo && npm run test:demo` checks the demo.
 5. **Respect the Pi 3.** No polling faster than the existing intervals, no new heavy dependencies, no
    writes to the SD card in loops (the monitor keeps its history in memory on purpose; only the hourly
    month is saved, when the service stops and at most once a day).
@@ -79,4 +81,5 @@ The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhe
 | Service list shipped with a new install | `pi/services.json` |
 | Install, upgrade, rollback | `pi/hub-install.sh`, `pi/hub-migrate.py`, `pi/hub-upgrade.py` (`hub-install.sh upgrade`) |
 | Release package | `.github/scripts/build-package.sh`, `.github/workflows/package.yml` |
+| Demo on GitHub Pages | `hub/lib/demo.ts`, `hub/dev/pretend-pi.mjs`, `hub/scripts/build-demo.mjs`, `.github/workflows/demo.yml` |
 | Content downloads (Wikipedia, maps, address index) | `pi/hub-update.sh`, `pi/build-search-index.py` |

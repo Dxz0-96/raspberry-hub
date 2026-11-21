@@ -22,9 +22,15 @@ function commit(): string {
   }
 }
 
+// The demo on GitHub Pages (npm run demo) lives under /<repository>/ and is built in its own folders, so it
+// never mixes with the site for the Raspberry Pi, which is served from the root.
+const basePath = process.env.HUB_BASE_PATH ?? "";
+
 // The hub is a static site: it is built on the PC and copied to the Raspberry Pi, where Caddy serves it.
 const config: NextConfig = {
   output: "export",
+  basePath: basePath || undefined,
+  distDir: process.env.HUB_DIST_DIR || ".next",
   trailingSlash: true,
   images: { unoptimized: true },
   reactStrictMode: true,
@@ -34,6 +40,9 @@ const config: NextConfig = {
     NEXT_PUBLIC_REPO: repo,
     NEXT_PUBLIC_COMMIT: commit(),
     NEXT_PUBLIC_BUILT: new Date().toISOString(),
+    NEXT_PUBLIC_BASE_PATH: basePath,
+    // always set, so the demo code is left out of the site for the Raspberry Pi, not only never run there
+    NEXT_PUBLIC_DEMO: process.env.NEXT_PUBLIC_DEMO === "1" ? "1" : "",
   },
 };
 

@@ -12,6 +12,7 @@
 #   sudo bash hub-install.sh disable   rolls back: Pi-hole on 80/443 again, Caddy stopped
 #   sudo bash hub-install.sh           prepare + site + enable + monthly
 #
+#   sudo bash hub-install.sh watchdog  applies WATCHDOG from /etc/hub.conf (hardware watchdog on or off)
 #   sudo hub-install.sh upgrade [X.Y.Z] [--yes]
 #                                      downloads a release package from GitHub, checks it and installs it
 #                                      (the latest release unless a version is given; see hub-upgrade.py)
@@ -125,11 +126,13 @@ do_prepare() {
 
   echo "== Services"
   for u in kiwix-hub.service hub-search.service hub-control.service hub-cert-sync.path hub-cert-sync.service \
-           hub-version-check.service hub-version-check.timer hub-upgrade@.service; do
+           hub-version-check.service hub-version-check.timer hub-upgrade@.service hub-check.service; do
     install -o root -g root -m 644 "$HERE/units/$u" "/etc/systemd/system/$u"
   done
   systemctl daemon-reload
   systemctl enable kiwix-hub.service hub-search.service hub-control.service >/dev/null 2>&1
+  # after every boot: did everything come back? The result is in /run/hub-check.json, and in the hub
+  systemctl enable hub-check.service >/dev/null 2>&1
   # once a day: is there a newer release? (CHECK_FOR_UPDATES=no in /etc/hub.conf turns it off)
   systemctl enable --now hub-version-check.timer >/dev/null 2>&1
   systemctl restart hub-control.service
@@ -137,6 +140,32 @@ do_prepare() {
   /usr/local/sbin/hub-update.sh status
   systemctl start --no-block hub-version-check.service 2>/dev/null || true
   echo "   hub-control running; Wikipedia and search start as soon as their content is downloaded"
+  do_watchdog
+}
+
+do_watchdog() {
+  echo "== Hardware watchdog"
+  local conf=/etc/systemd/system.conf.d/hub-watchdog.conf
+  local wanted='[Manager]
+# raspberry-hub (WATCHDOG=yes in /etc/hub.conf): a Raspberry Pi that hangs reboots by itself.
+# The watchdog of the Pi allows at most about 15 seconds.
+RuntimeWatchdogSec=14s'
+  if [ "$(sed -n 's/^WATCHDOG=//p' /etc/hub.conf 2>/dev/null | tail -n 1)" = yes ]; then
+    if [ ! -e /dev/watchdog ] && [ ! -e /dev/watchdog0 ]; then
+      echo "   WARNING: this system has no watchdog device (/dev/watchdog): left off"; return 0
+    fi
+    if [ "$(cat "$conf" 2>/dev/null)" = "$wanted" ]; then echo "   on"; return 0; fi
+    install -d -m 755 /etc/systemd/system.conf.d
+    printf '%s\n' "$wanted" > "$conf"
+    systemctl daemon-reexec
+    echo "   on: a Raspberry Pi that hangs reboots by itself after about 14 seconds"
+  elif [ -e "$conf" ]; then
+    rm -f "$conf"
+    systemctl daemon-reexec
+    echo "   off"
+  else
+    echo "   off (WATCHDOG=yes in /etc/hub.conf, then sudo hub-install.sh watchdog, to turn it on)"
+  fi
 }
 
 do_site() {
@@ -308,11 +337,12 @@ case "$WHAT" in
     upgrader="$LIB/hub-upgrade.py"; [ -f "$upgrader" ] || upgrader="$HERE/hub-upgrade.py"
     ADMIN_USER="$ADMIN" exec python3 "$upgrader" "${@:2}" ;;
   prepare) do_prepare ;;
+  watchdog) do_watchdog ;;
   site)    do_site ;;
   enable)  do_enable ;;
   monthly) do_monthly ;;
   disable) do_disable ;;
   all)     do_prepare; do_site; do_enable; do_monthly ;;
-  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable|upgrade [X.Y.Z] [--yes]]" >&2; exit 1 ;;
+  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable|watchdog|upgrade [X.Y.Z] [--yes]]" >&2; exit 1 ;;
 esac
 echo "== Done."
