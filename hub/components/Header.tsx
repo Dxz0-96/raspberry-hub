@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, CircleAlert, KeyRound, Lock, LogOut, Monitor, Moon, Sun, UserRound } from "lucide-react";
 import { errorMessage, useHub } from "@/lib/hub";
 import { duration } from "@/lib/format";
-import { LOCALES, useI18n } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { Dialog } from "./Dialog";
 
@@ -29,27 +29,6 @@ function ThemePicker() {
           onClick={() => set(value)}
         >
           <Icon size={17} aria-hidden="true" />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function LanguagePicker() {
-  const { locale, setLocale, t } = useI18n();
-  return (
-    <div className="picker language" role="group" aria-label={t.header.language}>
-      {LOCALES.map(({ code, name }) => (
-        <button
-          key={code}
-          type="button"
-          lang={code}
-          aria-pressed={locale === code}
-          aria-label={name}
-          title={name}
-          onClick={() => setLocale(code)}
-        >
-          {code.toUpperCase()}
         </button>
       ))}
     </div>
@@ -181,7 +160,8 @@ function Session() {
   );
 }
 
-/** The header of every page: name of the Raspberry Pi, how it is doing, login, language and theme. */
+/** The header of every page: name of the Raspberry Pi, how it is doing, login and theme. (The language follows the
+ *  browser: lib/i18n.tsx.) */
 export function Header({ title, back = false }: { title?: string; back?: boolean }) {
   const { system } = useHub();
   const { t, locale } = useI18n();
@@ -205,7 +185,6 @@ export function Header({ title, back = false }: { title?: string; back?: boolean
         </div>
         <div className="topbar-actions">
           <Session />
-          <LanguagePicker />
           <ThemePicker />
         </div>
       </div>

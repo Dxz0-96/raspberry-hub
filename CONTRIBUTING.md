@@ -64,7 +64,7 @@ Also check that:
 
 - interface changes work on a phone (the Playwright suite runs on a Pixel 7 profile too), in both themes and
   with the keyboard;
-- new or changed text exists in **both** languages;
+- new or changed text exists in **every** language (`hub/lib/messages/`);
 - anything that changes files, paths, settings or JSON formats on the Raspberry Pi comes with a migration in
   `pi/hub-migrate.py` and a test in `pi/tests/test_pi.py`, so existing installations upgrade with
   `.\deploy.ps1 -Update`;
@@ -137,14 +137,24 @@ You can check a message locally with `bash .github/scripts/check-commits.sh "fea
 
 ## Translations
 
-The interface is in English and Italian. All texts are in `hub/lib/messages/en.ts`, which defines the keys,
-and `hub/lib/messages/it.ts`, which must have exactly the same keys (TypeScript reports anything missing).
-Texts that depend on numbers or names are small functions, so each language can build its own sentence and
-plural forms. Numbers and dates are formatted with `hub/lib/format.ts`, which follows the page language.
+The interface is in English, Italian, Spanish, French and German, and follows the language of the browser
+(there is no switch in the page). All texts are in `hub/lib/messages/`: `en.ts` defines the keys, and every other
+dictionary must have exactly the same ones (TypeScript reports anything missing, and `hub/tests/i18n.spec.ts`
+also checks the error and state codes of `apiErrors` and `services.details`). Texts that depend on numbers or
+names are small functions, so each language can build its own sentence and plural forms. Numbers and dates are
+formatted with `hub/lib/format.ts`, which follows the page language; what Intl does not know (the short units of
+a duration, "1°" or "1er" for the first of the month, "Go" for gigabytes) is in the `format` section of each
+dictionary.
 
-To add a language: copy `it.ts`, translate it, add the code to `LOCALES` and `MESSAGES` in
-`hub/lib/i18n.tsx` and to the language check in `LANGUAGE_SCRIPT`, and add a test like
-`hub/tests/i18n.spec.ts`.
+To add a language:
+
+1. Copy `en.ts` to `xx.ts` (`xx` is the language code, for example `pt`) and translate it.
+2. Import it in `hub/lib/messages/index.ts` and add one line to `LOCALES`, with the name of the language in that
+   language. The detection before the first paint, the map labels and the tests' list of languages follow it.
+3. Add a test to `hub/tests/i18n.spec.ts` with a browser in that language (texts, numbers and dates).
+
+A language is not a place: adding French does not touch the map area, the address data or the Wikipedia
+edition, which are chosen on the Raspberry Pi.
 
 ## Dependency updates
 

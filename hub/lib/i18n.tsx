@@ -1,7 +1,8 @@
 "use client";
 
-// The language of the hub: English or Italian. The choice is per device (like the theme): saved in
-// localStorage when someone picks a language, otherwise taken from the browser languages.
+// The language of the hub, one of LOCALES (lib/messages/index.ts): the first of the browser's preferred
+// languages that the hub speaks ("fr-CH" counts as "fr"), English if none. There is no switch in the hub: the
+// language is chosen in the browser settings, and the page follows them when they change.
 //
 // The site is a static export rendered in English. An inline script in <head> (LANGUAGE_SCRIPT, run
 // before the first paint) sets <html lang> and data-lang; for any language other than English the
@@ -9,7 +10,6 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -17,31 +17,31 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { en, type Messages } from "./messages/en";
-import { it } from "./messages/it";
+import { DEFAULT_LOCALE, LOCALE_CODES, isLocale, messagesFor, type Locale, type Messages } from "./messages";
 
-export type Locale = "en" | "it";
-export const LOCALES: { code: Locale; name: string }[] = [
-  { code: "en", name: "English" },
-  { code: "it", name: "Italiano" },
-];
-const MESSAGES: Record<Locale, Messages> = { en, it };
-const KEY = "language";
+export { LOCALES, type Locale } from "./messages";
 
-/** Runs in <head> before the page is shown: stored choice, otherwise the first supported browser language. */
-export const LANGUAGE_SCRIPT = `try{var d=document.documentElement,l=null;try{l=localStorage.getItem("${KEY}")}catch(e){}
-if(l!=="en"&&l!=="it"){l="en";var n=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];
-for(var i=0;i<n.length;i++){var c=String(n[i]||"").slice(0,2).toLowerCase();if(c==="en"||c==="it"){l=c;break}}}
+/** Runs in <head> before the page is shown, and does what detect() below does. Versions up to 2.2 had EN / IT
+ *  buttons that saved the choice under "language": it is removed, so the browser decides from now on. */
+export const LANGUAGE_SCRIPT = `try{var d=document.documentElement,s=${JSON.stringify(LOCALE_CODES)},l="${DEFAULT_LOCALE}";
+try{localStorage.removeItem("language")}catch(e){}
+var n=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];
+for(var i=0;i<n.length;i++){var c=String(n[i]||"").toLowerCase().split("-")[0];if(s.indexOf(c)>=0){l=c;break}}
 d.lang=l;d.dataset.lang=l}catch(e){}`;
 
-function isLocale(value: unknown): value is Locale {
-  return value === "en" || value === "it";
+/** The first of the browser languages that the hub speaks, or the default. */
+function detect(): Locale {
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const language of languages) {
+    const code = String(language || "").toLowerCase().split("-")[0];
+    if (isLocale(code)) return code;
+  }
+  return DEFAULT_LOCALE;
 }
 
 interface I18n {
   locale: Locale;
   t: Messages;
-  setLocale: (locale: Locale) => void;
 }
 
 const Context = createContext<I18n | null>(null);
@@ -57,38 +57,35 @@ const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : us
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   // Same as the static HTML for hydration; switched before the first paint by the effect below.
-  const [locale, setLocaleState] = useState<Locale>("en");
+  const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
 
+  // Always from the browser, never from the attributes the head script set: when React reports a hydration
+  // error it renders the page again and recreates <html> without them (it happens when the scripts of the page are
+  // already cached, for example after the home page prefetched them).
   useIsomorphicLayoutEffect(() => {
-    const detected = document.documentElement.dataset.lang;
-    if (isLocale(detected) && detected !== locale) setLocaleState(detected);
+    const wanted = detect();
+    if (wanted !== locale) setLocale(wanted);
+    // the languages were changed in the browser settings: follow them without a reload
+    const changed = () => setLocale(detect());
+    window.addEventListener("languagechange", changed);
+    return () => window.removeEventListener("languagechange", changed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useIsomorphicLayoutEffect(() => {
+    // the first render is the English of the static page: the page is ready once it shows the browser language
+    if (locale !== detect()) return;
     const root = document.documentElement;
-    if (root.dataset.lang === locale || !isLocale(root.dataset.lang)) {
-      root.lang = locale;
-      root.dataset.lang = locale;
-      root.dataset.i18n = "ready";
-    }
+    root.lang = locale;
+    root.dataset.lang = locale;
+    root.dataset.i18n = "ready";
   }, [locale]);
 
-  const setLocale = useCallback((next: Locale) => {
-    try {
-      localStorage.setItem(KEY, next);
-    } catch {
-      // storage not available (private browsing): the language lasts only for this visit
-    }
-    document.documentElement.dataset.lang = next;
-    setLocaleState(next);
-  }, []);
-
-  const value = useMemo<I18n>(() => ({ locale, t: MESSAGES[locale], setLocale }), [locale, setLocale]);
+  const value = useMemo<I18n>(() => ({ locale, t: messagesFor(locale) }), [locale]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
-/** The browser tab title in the page language: "Maps, raspberry" / "Mappe, raspberry". React puts it in
+/** The browser tab title in the page language: "Maps, raspberry", "Mappe, raspberry". React puts it in
  *  <head>; pages render it instead of a static metadata title, which would not follow the language. */
 export function PageTitle({ page }: { page: keyof Messages["titles"] | null }) {
   const { t } = useI18n();

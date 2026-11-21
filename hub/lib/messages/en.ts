@@ -1,5 +1,6 @@
-// English texts of the hub. Every other language (it.ts) has exactly the same keys: TypeScript checks it.
-// Texts that depend on numbers or names are functions, so each language can build its own sentence.
+// English texts of the hub. Every other language (it.ts, es.ts, ...) has exactly the same keys: TypeScript
+// checks it. Texts that depend on numbers or names are functions, so each language can build its own sentence.
+// The languages are listed in index.ts.
 
 export const en = {
   common: {
@@ -27,7 +28,6 @@ export const en = {
     themeLight: "Light",
     themeDark: "Dark",
     themeButton: (name: string) => `Theme: ${name.toLowerCase()}`,
-    language: "Language",
     logIn: "Log in",
     changePassword: "Change password",
     logOut: "Log out",
@@ -384,6 +384,18 @@ export const en = {
   },
   toast: {
     close: "Close the message",
+  },
+  /** What lib/format.ts needs and Intl does not give */
+  format: {
+    /** Short units of a duration: "1 d 22 h", "3 h 5 min" */
+    day: "d",
+    hour: "h",
+    minute: "min",
+    /** The first of the month in a date that starts with the day: "1" in most languages, "1°" in Italian */
+    firstOfMonth: "1",
+    /** Units of a size: "44 GB", "512 MB" (French: "Go", "Mo") */
+    gigabyte: "GB",
+    megabyte: "MB",
   },
 };
 

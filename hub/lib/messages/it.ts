@@ -28,7 +28,6 @@ export const it: Messages = {
     themeLight: "Chiaro",
     themeDark: "Scuro",
     themeButton: (name) => `Tema: ${name.toLowerCase()}`,
-    language: "Lingua",
     logIn: "Accedi",
     changePassword: "Cambia password",
     logOut: "Esci",
@@ -379,5 +378,13 @@ export const it: Messages = {
   },
   toast: {
     close: "Chiudi il messaggio",
+  },
+  format: {
+    day: "g",
+    hour: "h",
+    minute: "min",
+    firstOfMonth: "1°",
+    gigabyte: "GB",
+    megabyte: "MB",
   },
 };

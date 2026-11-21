@@ -41,6 +41,13 @@ export function useTheme() {
   const choice = useSyncExternalStore<ThemeChoice>(subscribe, readChoice, () => "browser");
   const [browserDark, setBrowserDark] = useState(false);
 
+  // React recreates <html> without data-theme when it renders the page again after a hydration error: put it back
+  useEffect(() => {
+    const root = document.documentElement;
+    if (choice === "browser") delete root.dataset.theme;
+    else if (root.dataset.theme !== choice) root.dataset.theme = choice;
+  }, [choice]);
+
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const update = () => setBrowserDark(media.matches);
