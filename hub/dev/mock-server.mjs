@@ -98,6 +98,15 @@ function toRaspberry(req, res) {
   });
   forward.end();
 }
+
+// The headers Caddy adds (pi/Caddyfile): to every response, and to the pages of the hub. The policy of the pages is
+// read from the Caddyfile, so that the tests run the site under the same rules as the Raspberry Pi.
+const CADDYFILE = readFileSync(join(HERE, "..", "..", "pi", "Caddyfile"), "utf8");
+const PAGE_POLICY = /\(hub_pages\)[\s\S]*?Content-Security-Policy "([^"]+)"/.exec(CADDYFILE)?.[1];
+if (!PAGE_POLICY) throw new Error("pi/Caddyfile: no Content-Security-Policy in the (hub_pages) snippet");
+const EVERY_RESPONSE = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin" };
+const HUB_PAGES = { "Content-Security-Policy": PAGE_POLICY, "X-Frame-Options": "SAMEORIGIN" };
+
 const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".woff2": "font/woff2",
@@ -157,6 +166,7 @@ createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = decodeURIComponent(url.pathname);
   // only pages served from this computer (npm run dev on another port) may call the mock with cookies
+  for (const [name, value] of Object.entries(EVERY_RESPONSE)) res.setHeader(name, value);
   const origin = req.headers.origin ?? "";
   if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -267,6 +277,7 @@ createServer(async (req, res) => {
   }
 
   // the built site, as Caddy serves it
+  for (const [name, value] of Object.entries(HUB_PAGES)) res.setHeader(name, value);
   const relative = normalize(p).replace(/^(\.\.[/\\])+/, "");
   for (const candidate of [join(SITE, relative), join(SITE, relative, "index.html"), join(SITE, `${relative}.html`)]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return file(res, candidate, 200, req);

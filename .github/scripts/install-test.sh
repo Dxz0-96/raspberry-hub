@@ -85,6 +85,23 @@ print(f"hub-check.sh: {report['passed']} passed, {report['failed']} failed outsi
 PY
 end
 
+group "The Caddyfile is valid for the Caddy of this Debian"
+# as hub-install.sh enable writes it, with a throwaway certificate in place of the one of the home CA
+apt-get install -y -qq --no-install-recommends openssl > /dev/null
+made_cert=no
+if [ ! -e /etc/caddy/certs/tls.pem ]; then
+  install -d /etc/caddy/certs
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=raspberry \
+    -keyout /tmp/test-key.pem -out /tmp/test-cert.pem 2> /dev/null
+  cat /tmp/test-cert.pem /tmp/test-key.pem > /etc/caddy/certs/tls.pem
+  made_cert=yes
+fi
+sed 's/@RASPBERRY_IP@/192.0.2.10/g' "$HUB/Caddyfile" > /etc/caddy/Caddyfile.test
+caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile.test || fail "the Caddyfile does not validate"
+rm -f /etc/caddy/Caddyfile.test
+if [ "$made_cert" = yes ]; then rm -rf /etc/caddy/certs /tmp/test-key.pem /tmp/test-cert.pem; fi
+end
+
 if [ "$SCENARIO" = from-1x ]; then
   group "raspberry-hub 1.x converted"
   json '["services"][1]["requires"]' < /srv/hub/config/services.json | grep -qx /srv/hub/maps/basemap.pmtiles \
