@@ -5,6 +5,7 @@
 #   sudo hub-update.sh wiki           Wikipedia only
 #   sudo hub-update.sh maps           maps only
 #   sudo hub-update.sh addresses      address index only
+#   sudo hub-update.sh maps addresses several of them
 #   sudo hub-update.sh estimate-maps [BOX]
 #                                     tells how big the maps of MAP_BBOX (or of BOX: west,south,east,north) would be,
 #                                     without downloading them
@@ -358,14 +359,19 @@ PY
 # Sourced by .github/scripts/check-sources.sh for the settings and functions above: nothing below runs then.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
 
-WHAT="${1:-all}"
-# Italian names from version 1.x: pi-setup's monthly-update.sh may still call "hub-update.sh tutto".
+usage() { echo "Usage: sudo hub-update.sh [all | wiki maps addresses (one or more) | estimate-maps [BOX] | status | check-version]" >&2; exit 2; }
+english() {   # Italian names from version 1.x: pi-setup's monthly-update.sh may still call "hub-update.sh tutto"
+  case "$1" in tutto) echo all ;; mappe) echo maps ;; indirizzi) echo addresses ;; stato) echo status ;;
+               stima-mappe) echo estimate-maps ;; *) echo "$1" ;; esac
+}
+WHAT=$(english "${1:-all}")
+PARTS=" "
 case "$WHAT" in
-  tutto) WHAT=all ;; mappe) WHAT=maps ;; indirizzi) WHAT=addresses ;; stato) WHAT=status ;; stima-mappe) WHAT=estimate-maps ;;
-esac
-case "$WHAT" in
-  all|wiki|maps|addresses|status|estimate-maps|check-version) ;;
-  *) echo "Usage: sudo hub-update.sh [all|wiki|maps|addresses|estimate-maps|status|check-version]" >&2; exit 2 ;;
+  status|estimate-maps|check-version) ;;
+  *) for word in "${@:-all}"; do
+       word=$(english "$word")
+       case "$word" in all|wiki|maps|addresses) PARTS+="$word " ;; *) usage ;; esac
+     done ;;
 esac
 [ "$(id -u)" -eq 0 ] || { echo "Run it with sudo." >&2; exit 1; }
 mkdir -p "$ZIM" "$MAPS" "$SEARCH" "$STATE"
@@ -378,7 +384,7 @@ if [ "$WHAT" = check-version ]; then do_check_version; exit 0; fi
 lock() { exec {fd}>"/run/hub-update-$1.lock"; flock -n "$fd"; }
 rc=0
 for part in wiki maps addresses; do
-  [ "$WHAT" = all ] || [ "$WHAT" = "$part" ] || continue
+  [[ $PARTS == *" all "* || $PARTS == *" $part "* ]] || continue
   if ! lock "$part"; then log "$part: another update is already running, skipping"; continue; fi
   log "===== $part: start"
   "do_$part" || rc=1
