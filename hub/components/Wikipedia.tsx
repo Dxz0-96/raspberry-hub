@@ -7,10 +7,11 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { House, Search, Shuffle, X } from "lucide-react";
+import { House, Languages, Search, Shuffle, X } from "lucide-react";
 import { BASE, DEMO, useHub } from "@/lib/hub";
 import { decimal } from "@/lib/format";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type Locale } from "@/lib/i18n";
+import type { ContentStatus } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 
 const PAGE_SIZE = 20;
@@ -19,6 +20,34 @@ const PAGE_SIZE = 20;
  *  Raspberry Pi scripts older than the language field have the Italian edition. */
 function bookOf(language: string | null | undefined): string {
   return `wikipedia_${language || "it"}`;
+}
+
+/** The languages of the installed editions, in the order of WIKI_LANGUAGE on the Raspberry Pi. */
+function editionsOf(content: ContentStatus | null): string[] {
+  const listed = content?.wikipedia.editions?.map((e) => e.language).filter(Boolean) ?? [];
+  return listed.length ? listed : [content?.wikipedia.language || "it"];
+}
+
+/** The edition to open: the one picked (or written in the address), else the one in the language of the hub,
+ *  else the first one. Only the edition follows the language: never the map or the address data. */
+function editionFor(installed: string[], picked: string | null, locale: Locale): string {
+  if (picked && installed.includes(picked)) return picked;
+  return installed.includes(locale) ? locale : installed[0];
+}
+
+/** "Italiano", "English": the name of a language in that language, as language pickers write it */
+function languageName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames([code], { type: "language" }).of(code) ?? code;
+    return name.charAt(0).toLocaleUpperCase(code) + name.slice(1);
+  } catch {
+    return code;
+  }
+}
+
+/** The edition written in the address (#article=Roma&edition=it), when several are installed */
+function readEdition(): string | null {
+  return new URLSearchParams(window.location.hash.slice(1)).get("edition");
 }
 
 /** Where the articles of a book are: /wiki/content/wikipedia_it/ */
@@ -50,7 +79,8 @@ function readView(): View {
   return { kind: "article", path: params.get("article") ?? params.get("voce") ?? "" };
 }
 
-function writeView(view: View, replace = false) {
+/** edition: written in the address too when several editions are installed, so bookmarks keep it */
+function writeView(view: View, replace = false, edition: string | null = null) {
   const params = new URLSearchParams();
   if (view.kind === "search") {
     params.set("search", view.query);
@@ -58,6 +88,7 @@ function writeView(view: View, replace = false) {
   } else if (view.path) {
     params.set("article", view.path);
   }
+  if (edition) params.set("edition", edition);
   const hash = params.toString() ? `#${params}` : window.location.pathname;
   if (replace) window.history.replaceState(null, "", hash);
   else window.history.pushState(null, "", hash);
@@ -380,10 +411,16 @@ function Results({ book, query, from, onArticle, onPage }: {
 
 export default function Wikipedia() {
   const { states, content, contentChecked } = useHub();
+  const { t, locale } = useI18n();
+  const installed = editionsOf(content);
+  const [picked, setPicked] = useState<string | null>(null);
+  const edition = editionFor(installed, picked, locale);
   // the edition is known once the content status arrived (or could not be read: then the Italian one)
-  const book = contentChecked ? bookOf(content?.wikipedia.language) : null;
+  const book = contentChecked ? bookOf(edition) : null;
   const bookNow = useRef<string | null>(book);
-  const { t } = useI18n();
+  /** the edition to write in the address: only when there is a choice */
+  const editionInAddress = useRef<string | null>(null);
+  editionInAddress.current = installed.length > 1 ? edition : null;
   const { dark } = useTheme();
   const [view, setView] = useState<View | null>(null);
   const [source, setSource] = useState<string | null>(null);
@@ -402,6 +439,7 @@ export default function Wikipedia() {
     if (!book) return;
     const update = () => {
       const next = readView();
+      setPicked(readEdition());
       setView(next);
       if (next.kind === "article") {
         if (!next.path) lookingForMainPage.current = true;
@@ -436,7 +474,7 @@ export default function Wikipedia() {
     if (!current) return;
     const next: View = { kind: "article", path };
     if (!path) lookingForMainPage.current = true;
-    writeView(next);
+    writeView(next, false, editionInAddress.current);
     setView(next);
     setSource(articleUrl(current, path));
     setLoading(true);
@@ -444,9 +482,17 @@ export default function Wikipedia() {
 
   const search = useCallback((query: string, from = 0) => {
     const next: View = { kind: "search", query, from };
-    writeView(next);
+    writeView(next, false, editionInAddress.current);
     setView(next);
     window.scrollTo({ top: 0 });
+  }, []);
+
+  /** Another edition: the search goes on in it; an article is not the same page in another language, so its
+   *  main page opens. */
+  const pickEdition = useCallback((code: string) => {
+    const now = readView();
+    writeView(now.kind === "search" ? now : { kind: "article", path: "" }, false, code);
+    setPicked(code);
   }, []);
 
   const randomArticle = useCallback(() => {
@@ -476,7 +522,7 @@ export default function Wikipedia() {
       applyTheme(element, darkNow.current, article === mainPage.current);
       // if meanwhile the search results were opened, the address stays the one of the search
       if (article && readView().kind === "article") {
-        writeView({ kind: "article", path: article }, true);
+        writeView({ kind: "article", path: article }, true, editionInAddress.current);
         setView((before) => (before?.kind === "article" ? { kind: "article", path: article } : before));
       }
       document.title = doc?.title && article !== mainPage.current ? `${doc.title}, Wikipedia, raspberry` : "Wikipedia, raspberry";
@@ -517,6 +563,17 @@ export default function Wikipedia() {
           <ArticleSearch book={book} onArticle={openArticle} onSearch={(q) => search(q)}
             initial={view?.kind === "search" ? view.query : ""} />
           <div className="wiki-actions">
+            {installed.length > 1 && (
+              <label className="button wiki-edition">
+                <Languages size={17} aria-hidden="true" />
+                <select value={edition} aria-label={t.wikipedia.edition} disabled={!available}
+                  onChange={(event) => pickEdition(event.target.value)}>
+                  {installed.map((code) => (
+                    <option key={code} value={code} lang={code}>{languageName(code)}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button type="button" className="button" onClick={() => openArticle("")} disabled={!available}>
               <House size={17} aria-hidden="true" />
               <span>{t.wikipedia.mainPage}</span>

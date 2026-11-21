@@ -382,6 +382,7 @@ export const fr: Messages = {
     more: "Plus de résultats",
     mainPage: "Accueil",
     random: "Article au hasard",
+    edition: "Édition de Wikipédia",
     notDownloadedTitle: "Wikipédia n'a pas encore été téléchargée",
     notDownloadedBody: "Le Raspberry Pi la télécharge tout seul : le hub indique quand elle est prête.",
     offTitle: "Wikipédia est éteinte",

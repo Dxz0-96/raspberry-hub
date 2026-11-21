@@ -196,32 +196,75 @@ def describe_wiki(language, variants):
     return f"  Wikipedia in {language!r}: {sizes}."
 
 
-def choose_wiki(editions, language, variant):
-    """Asks the language, then the variant with the size of each; (language, variant), or None to give up."""
+def parse_editions(text, default_variant):
+    """"it", "it,en" or "it:maxi,en:nopic" (WIKI_LANGUAGE) -> [("it", "maxi"), ("en", "nopic")]"""
+    editions = []
+    for item in re.split(r"[,\s]+", text.strip().lower()):
+        if item:
+            language, _, variant = item.partition(":")
+            editions.append((language, variant or default_variant))
+    return editions
+
+
+def wiki_settings(editions, default_variant):
+    """The settings for a list of editions: WIKI_VARIANT when they all have the same variant, otherwise each says
+    its own in WIKI_LANGUAGE."""
+    variants = {variant for _, variant in editions}
+    if len(variants) == 1:
+        return {"WIKI_LANGUAGE": ",".join(language for language, _ in editions), "WIKI_VARIANT": variants.pop()}
+    return {"WIKI_LANGUAGE": ",".join(f"{language}:{variant}" for language, variant in editions),
+            "WIKI_VARIANT": default_variant}
+
+
+def check_editions(wanted, listing):
+    """None if every edition is a Kiwix language and variant, otherwise what is wrong."""
+    for language, variant in wanted:
+        if not LANGUAGE_CODE.fullmatch(language) or variant not in VARIANTS:
+            return f"{language!r} {variant!r} is not a language code and variant (it, en...; maxi, nopic, mini)."
+        if listing is not None and (language not in listing or variant not in listing[language]):
+            return (f"Wikipedia {language!r} {variant!r} is not in the Kiwix listing ({WIKI_URL})."
+                    + (f" Variants of {language!r}: {', '.join(listing[language])}." if language in listing else ""))
+    return None
+
+
+def choose_wiki(listing, current):
+    """Asks the languages, then the variant of each with its size; the list of (language, variant)."""
+    languages = ",".join(language for language, _ in current)
+    variants = dict(current)
     while True:
-        answer = ask(f"Offline Wikipedia: which language? (it, en, de, fr, es...) [{language}] ", language).lower()
-        if editions is not None and answer not in editions:
-            print(f"  {answer!r} is not a language of the Kiwix listing ({WIKI_URL}): for example it, en, de, fr, es.")
+        answer = ask("Offline Wikipedia: which language? Several, separated by commas, if people at home read "
+                     f"different ones; the hub opens the one of each browser. (it, en, de, fr, es...) [{languages}] ",
+                     languages).lower()
+        chosen = [language for language, _ in parse_editions(answer, "")]
+        unknown = [language for language in chosen if not LANGUAGE_CODE.fullmatch(language)
+                   or (listing is not None and language not in listing)]
+        if not chosen or unknown:
+            print(f"  {', '.join(unknown) or answer!r}: not a language of the Kiwix listing ({WIKI_URL}). "
+                  "For example it, en, de, fr, es.")
             continue
-        if editions is None and not LANGUAGE_CODE.fullmatch(answer):
-            print(f"  {answer!r} is not a language code: for example it, en, de, fr, es.")
-            continue
-        variants = editions.get(answer, {}) if editions is not None else {v: ("", "?") for v in VARIANTS}
-        if editions is not None:
-            print(describe_wiki(answer, variants))
-        offered = [v for v in VARIANTS if v in variants]
-        default = variant if variant in offered else offered[0]
-        chosen = ask(f"  Which variant? ({', '.join(offered)}) [{default}] ", default).lower()
-        if chosen in offered:
-            return answer, chosen
-        print(f"  {chosen!r} is not one of {', '.join(offered)}.")
+        break
+    editions = []
+    for language in chosen:
+        offered = [v for v in VARIANTS if listing is None or v in listing[language]]
+        if listing is not None:
+            print(describe_wiki(language, listing[language]))
+        default = variants.get(language, current[0][1])
+        default = default if default in offered else offered[0]
+        while True:
+            variant = ask(f"  Which variant for {language!r}? ({', '.join(offered)}) [{default}] ", default).lower()
+            if variant in offered:
+                break
+            print(f"  {variant!r} is not one of {', '.join(offered)}.")
+        editions.append((language, variant))
+    return editions
 
 
 # --------------------------------------------------------------------------- start
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--country", help="ISO 3166 code of the country of the map (no question)")
-    parser.add_argument("--wiki-language", help="language of the Wikipedia edition, as Kiwix names it: it, en... (no question)")
+    parser.add_argument("--wiki-language", help="Wikipedia languages as Kiwix names them, each with its variant if it "
+                        "is not --wiki-variant: it, it,en or it:maxi,en:nopic (no question)")
     parser.add_argument("--wiki-variant", choices=VARIANTS, help="maxi (with images), nopic or mini")
     parser.add_argument("--list", action="store_true", help="list the countries and stop")
     parser.add_argument("--first-install", action="store_true", help="run by hub-install.sh on a new installation")
@@ -262,32 +305,30 @@ def main():
         name = countries[current]["name"] if current in countries else f"a box of your own ({conf.get('MAP_BBOX')})"
         summary.append(f"map and address search: {name}")
 
-    # Wikipedia
-    language = conf.get("WIKI_LANGUAGE", DEFAULT_WIKI_LANGUAGE)
+    # Wikipedia: one edition or several
     variant = conf.get("WIKI_VARIANT", DEFAULT_WIKI_VARIANT)
+    current = parse_editions(conf.get("WIKI_LANGUAGE", DEFAULT_WIKI_LANGUAGE), variant) or [(DEFAULT_WIKI_LANGUAGE, variant)]
     choice = None
     if args.wiki_language or args.wiki_variant:
-        choice = ((args.wiki_language or language).strip().lower(), args.wiki_variant or variant)
-        editions = kiwix_editions()
-        if editions is None:
-            print(f"   The Kiwix listing cannot be read now: {choice[0]!r} is not checked.")
-        elif choice[0] not in editions or choice[1] not in editions[choice[0]]:
-            print(f"Wikipedia {choice[0]!r} {choice[1]!r} is not in the Kiwix listing ({WIKI_URL})."
-                  + (f" Variants of {choice[0]!r}: {', '.join(editions[choice[0]])}." if choice[0] in editions else ""),
-                  file=sys.stderr)
-            return 2
-        if not LANGUAGE_CODE.fullmatch(choice[0]):
-            print(f"{choice[0]!r} is not a language code (it, en...).", file=sys.stderr)
+        default_variant = args.wiki_variant or variant
+        choice = parse_editions(args.wiki_language, default_variant) if args.wiki_language else \
+            [(language, default_variant) for language, _ in current]
+        listing = kiwix_editions()
+        if listing is None:
+            print("   The Kiwix listing cannot be read now: the Wikipedia languages are not checked.")
+        problem = check_editions(choice, listing)
+        if problem:
+            print(problem, file=sys.stderr)
             return 2
     elif ask_rest:
         print("   reading the list of Wikipedia editions...", flush=True)
-        choice = choose_wiki(kiwix_editions(), language, variant)
+        choice = choose_wiki(kiwix_editions(), current)
     if choice:
-        wanted.update({"WIKI_LANGUAGE": choice[0], "WIKI_VARIANT": choice[1]})
-        if (choice[0], choice[1]) != (language, variant):
+        wanted.update(wiki_settings(choice, args.wiki_variant or variant))
+        if choice != current:
             parts.append("wiki")
-        language, variant = choice
-    summary.append(f"Wikipedia: {language}, {variant}")
+        current = choice
+    summary.append("Wikipedia: " + ", ".join(f"{language} ({v})" for language, v in current))
 
     if not wanted:
         for line in summary:

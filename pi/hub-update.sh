@@ -84,14 +84,23 @@ def size(p):
         return os.path.getsize(p)
     except OSError:
         return None
-link = f"{hub}/zim/wikipedia_{os.environ['WIKI_LANGUAGE']}.zim"
-target = os.path.realpath(link) if os.path.exists(link) else None
-m = re.search(r"_(\d{4}-\d{2})\.zim$", target or "")
+def edition(language):
+    """The installed edition of a language: its link wikipedia_<language>.zim and the dated file it points to."""
+    link = f"{hub}/zim/wikipedia_{language}.zim"
+    target = os.path.realpath(link) if os.path.exists(link) else None
+    m = re.search(r"_(\d{4}-\d{2})\.zim$", target or "")
+    return {"language": language, "edition": m.group(1) if m else None, "bytes": size(target) if target else None}
+# WIKI_LANGUAGE: "it", "it,en" or "it:maxi,en:nopic" (see wiki_editions)
+languages = [item.split(":")[0] for item in re.split(r"[,\s]+", os.environ["WIKI_LANGUAGE"]) if item]
+editions = [edition(language) for language in languages]
+installed = [e for e in editions if e["edition"]]
+first = (installed or editions or [edition("it")])[0]
 status = {
     "updated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-    # language: the book the hub opens on kiwix-serve, wikipedia_<language>
-    "wikipedia": {"language": os.environ["WIKI_LANGUAGE"], "edition": m.group(1) if m else None,
-                  "bytes": size(target) if target else None,
+    # language: the book of the first edition on kiwix-serve, wikipedia_<language>; editions: every installed
+    # one, in the order of WIKI_LANGUAGE (the hub opens the one of the browser language)
+    "wikipedia": {"language": first["language"], "edition": first["edition"], "bytes": first["bytes"],
+                  "editions": installed,
                   "result": read(f"{hub}/state/wiki.result"), "running": os.path.exists(f"{hub}/state/wiki.running")},
     "maps": {"build": (read(f"{hub}/maps/basemap.build") or "")[:8] or None,
              "bytes": size(f"{hub}/maps/basemap.pmtiles"), "result": read(f"{hub}/state/maps.result"),
@@ -115,9 +124,25 @@ running() {      # $1 = wiki|maps|addresses  $2 = yes|no : tells the hub that th
 }
 
 # --------------------------------------------------------------------------- Wikipedia
-latest_wiki() {   # the newest edition of the configured language and variant in the Kiwix listing
-  curl -fsSL --max-time 120 "$WIKI_URL" \
-    | grep -oE "wikipedia_${WIKI_LANGUAGE}_all_${WIKI_VARIANT}_[0-9]{4}-[0-9]{2}\.zim" | sort -u | tail -1
+# WIKI_LANGUAGE is one language or several, separated by commas, each with its variant if it is not WIKI_VARIANT:
+# "it", "it,en", "it:maxi,en:nopic". kiwix-serve serves them all (kiwix-start), and the hub opens the one of the
+# language of each browser.
+wiki_editions() {   # one line per edition: language variant
+  local item language variant
+  for item in ${WIKI_LANGUAGE//,/ }; do
+    language="${item%%:*}"
+    variant="${item#*:}"
+    [ "$variant" != "$item" ] || variant="$WIKI_VARIANT"
+    echo "$language $variant"
+  done
+}
+newest_wiki() {   # $1 = the Kiwix listing, $2 = language, $3 = variant: the newest edition in it
+  grep -oE "wikipedia_${2}_all_${3}_[0-9]{4}-[0-9]{2}\.zim" <<<"$1" | sort -u | tail -1
+}
+latest_wiki() {   # the newest file of the first edition in the Kiwix listing (.github/scripts/check-sources.sh)
+  local language variant
+  read -r language variant < <(wiki_editions)
+  newest_wiki "$(curl -fsSL --max-time 120 "$WIKI_URL")" "$language" "$variant"
 }
 wiki_size() {     # $1 = file name: its size in bytes, 0 if unknown
   remote_size "$WIKI_URL$1"
@@ -126,55 +151,74 @@ wiki_sha256() {   # $1 = file name: the SHA-256 published next to it
   curl -fsSL --max-time 60 "$WIKI_URL$1.sha256" | awk '{print $1}'
 }
 
-do_wiki() {
-  local latest dest link current bytes needed sha expected
-  [[ $WIKI_LANGUAGE =~ ^[a-z][a-z-]*$ ]] || { failed wiki "WIKI_LANGUAGE=$WIKI_LANGUAGE is not a Kiwix language code (it, en...)"; return 1; }
-  latest=$(latest_wiki)
-  [ -n "$latest" ] || { failed wiki "list of editions not readable ($WIKI_URL)"; return 1; }
-  dest="$ZIM/$latest"
-  link="$ZIM/wikipedia_${WIKI_LANGUAGE}.zim"
-  current=$(readlink -f "$link" 2>/dev/null || true)
-  if [ -s "$dest" ] && [ "$current" = "$dest" ]; then
-    log "wiki: already at the latest edition ($latest)"; result wiki ok; return 0
-  fi
-
-  running wiki yes
+install_wiki() {  # $1 = language, $2 = edition file: downloads and verifies it if needed, then links it.
+                  # On failure WIKI_PROBLEM says why.
+  local language="$1" latest="$2" dest="$ZIM/$2" sha expected
   if [ ! -s "$dest" ]; then
-    bytes=$(wiki_size "$latest")
-    needed=$(( bytes / 1024 + 2097152 ))            # the file plus 2 GB of headroom
-    if [ -f "$dest.part" ]; then needed=$(( needed - $(stat -c %s "$dest.part") / 1024 )); fi
-    if [ "$(free_kb)" -lt "$needed" ]; then
-      failed wiki "not enough space for $latest ($(( needed / 1048576 )) GB free needed)"; return 1
-    fi
-    log "wiki: downloading $latest ($(( bytes / 1073741824 )) GB), resumes where it stopped if interrupted"
+    log "wiki: downloading $latest ($(( $(wiki_size "$latest") / 1073741824 )) GB), resumes where it stopped if interrupted"
     if ! wget -c -nv --tries=20 --waitretry=30 --timeout=60 -O "$dest.part" "$WIKI_URL$latest"; then
-      failed wiki "download interrupted, it will resume at the next update"; return 1
+      WIKI_PROBLEM="$language: download interrupted, it will resume at the next update"; return 1
     fi
     expected=$(wiki_sha256 "$latest")
-    if [ ${#expected} -ne 64 ]; then
-      failed wiki "SHA-256 checksum not available, file not installed"; return 1
-    fi
-    log "wiki: verifying the SHA-256 checksum"
+    [ ${#expected} -eq 64 ] || { WIKI_PROBLEM="$language: SHA-256 checksum not available, file not installed"; return 1; }
+    log "wiki: verifying the SHA-256 checksum of $latest"
     sha=$(nice -n 10 sha256sum "$dest.part" | awk '{print $1}')
     if [ "$sha" != "$expected" ]; then
-      rm -f "$dest.part"
-      failed wiki "SHA-256 checksum differs from the published one: file discarded"; return 1
+      rm -f "$dest.part"; WIKI_PROBLEM="$language: SHA-256 checksum differs from the published one, file discarded"; return 1
     fi
     mv -f "$dest.part" "$dest"
     chmod 644 "$dest"
   fi
-
-  ln -sfn "$latest" "$link.new" && mv -Tf "$link.new" "$link"
-  # Another language before (sudo hub-install.sh configure, or WIKI_LANGUAGE changed by hand): its edition and
-  # its link go only now that the new one is installed and verified, so Wikipedia never stays without one.
-  remove_other_languages
-  # restart and not try-restart: on the first installation the service never started (the file was missing).
-  # If Wikipedia is switched off from the hub, the unit condition keeps it stopped.
-  systemctl restart kiwix-hub.service 2>/dev/null || true
-  # remove earlier editions and other variants of the same language
-  find "$ZIM" -maxdepth 1 -type f -name "wikipedia_${WIKI_LANGUAGE}_all_*.zim" ! -name "$latest" -delete
-  find "$ZIM" -maxdepth 1 -type f -name "*.zim.part" ! -name "$latest.part" -delete
+  ln -sfn "$latest" "$ZIM/wikipedia_$language.zim.new" && mv -Tf "$ZIM/wikipedia_$language.zim.new" "$ZIM/wikipedia_$language.zim"
+  # earlier editions and other variants of the same language
+  find "$ZIM" -maxdepth 1 -type f -name "wikipedia_${language}_all_*.zim" ! -name "$latest" -delete
   log "wiki: installed edition $latest"
+}
+
+do_wiki() {
+  local listing language variant latest bytes item keep needed=0 changed=no problems=() wanted=() todo=() missing=()
+  while read -r language variant; do
+    if ! [[ $language =~ ^[a-z][a-z-]*$ && $variant =~ ^(maxi|nopic|mini)$ ]]; then
+      failed wiki "WIKI_LANGUAGE=$WIKI_LANGUAGE: '$language $variant' is not a Kiwix language and variant"; return 1
+    fi
+  done < <(wiki_editions)
+  listing=$(curl -fsSL --max-time 120 "$WIKI_URL") || { failed wiki "list of editions not readable ($WIKI_URL)"; return 1; }
+  # what is missing, and the space all of it needs together (each file, plus 2 GB of headroom once)
+  while read -r language variant; do
+    latest=$(newest_wiki "$listing" "$language" "$variant")
+    [ -n "$latest" ] || { failed wiki "no $variant edition of $language in $WIKI_URL"; return 1; }
+    wanted+=("$language $latest")
+    [ "$(readlink -f "$ZIM/wikipedia_$language.zim" 2>/dev/null)" = "$ZIM/$latest" ] && [ -s "$ZIM/$latest" ] && continue
+    todo+=("$language $latest")
+    if [ ! -s "$ZIM/$latest" ]; then
+      bytes=$(wiki_size "$latest")
+      needed=$(( needed + bytes / 1024 ))
+      if [ -f "$ZIM/$latest.part" ]; then needed=$(( needed - $(stat -c %s "$ZIM/$latest.part") / 1024 )); fi
+      missing+=("$latest")
+    fi
+  done < <(wiki_editions)
+  if [ ${#todo[@]} -eq 0 ]; then
+    log "wiki: already at the latest editions ($(printf '%s ' "${wanted[@]#* }"))"
+    remove_other_languages; result wiki ok; return 0
+  fi
+
+  running wiki yes
+  if [ ${#missing[@]} -gt 0 ] && [ "$(free_kb)" -lt $(( needed + 2097152 )) ]; then
+    failed wiki "not enough space for ${missing[*]} ($(( (needed + 2097152) / 1048576 )) GB free needed)"; return 1
+  fi
+  for item in "${todo[@]}"; do
+    if install_wiki "${item%% *}" "${item#* }"; then changed=yes; else problems+=("$WIKI_PROBLEM"); fi
+  done
+  # The languages no longer in WIKI_LANGUAGE go only once every edition asked for is installed and verified,
+  # so Wikipedia never stays without one.
+  [ ${#problems[@]} -gt 0 ] || remove_other_languages
+  keep=$(printf '! -name %s.part ' "${wanted[@]#* }")
+  # shellcheck disable=SC2086 # one test per wanted edition
+  find "$ZIM" -maxdepth 1 -type f -name "*.zim.part" $keep -delete
+  # restart and not try-restart: on the first installation the service never started (no edition yet).
+  # If Wikipedia is switched off from the hub, the unit condition keeps it stopped.
+  if [ "$changed" = yes ]; then systemctl restart kiwix-hub.service 2>/dev/null || true; fi
+  if [ ${#problems[@]} -gt 0 ]; then failed wiki "$(printf '%s; ' "${problems[@]}")"; return 1; fi
   result wiki ok
 }
 
@@ -185,11 +229,12 @@ zim_language() {  # $1 = file in the zim folder: its language ("it" for wikipedi
 }
 
 remove_other_languages() {
-  local file language
+  local file language languages
+  languages=" $(wiki_editions | awk '{printf "%s ", $1}')"
   for file in "$ZIM"/wikipedia_*.zim; do
     [ -e "$file" ] || [ -L "$file" ] || continue
     language=$(zim_language "$file")
-    [ "$language" = "$WIKI_LANGUAGE" ] && continue
+    [[ $languages == *" $language "* ]] && continue
     rm -f "$file"
     log "wiki: removed $(basename "$file") (language $language, no longer in WIKI_LANGUAGE)"
   done

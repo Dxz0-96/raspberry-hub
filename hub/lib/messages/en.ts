@@ -376,6 +376,7 @@ export const en = {
     more: "More results",
     mainPage: "Main page",
     random: "Random article",
+    edition: "Wikipedia edition",
     notDownloadedTitle: "Wikipedia has not been downloaded yet",
     notDownloadedBody: "The Raspberry Pi downloads it by itself: the hub shows when it is ready.",
     offTitle: "Wikipedia is switched off",

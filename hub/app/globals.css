@@ -1587,6 +1587,31 @@ a.row-link:hover {
   height: 48px;
 }
 
+/* the choice of the edition, when several are installed: a select that looks like the buttons next to it */
+.wiki-edition {
+  position: relative;
+  padding: 0 12px;
+}
+
+.wiki-edition select {
+  appearance: none;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wiki-edition select:focus-visible {
+  outline: none;
+}
+
+.wiki-edition:focus-within {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
 /* The article sits on a frosted panel like the rest of the hub; the article page is transparent
    and the frame takes the height of the content (Wikipedia.tsx), so the whole page scrolls. */
 .wiki-sheet {
