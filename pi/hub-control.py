@@ -725,13 +725,14 @@ class RequestLog(threading.Thread):
 
 
 def upstream():
-    """Who Unbound asks: Quad9 over encrypted DNS, or the root servers directly."""
+    """Who Unbound asks first (a public resolver over encrypted DNS), or the root servers directly."""
     text = read_text(UNBOUND_FILE)
     names = re.findall(r"forward-addr:\s*\S+#(\S+)", text)
     if not names:
         return {"name": "root_servers", "encrypted": False}
     name = names[0]
-    for key, readable in (("quad9", "Quad9"), ("cloudflare", "Cloudflare"), ("google", "Google")):
+    for key, readable in (("quad9", "Quad9"), ("cloudflare", "Cloudflare"), ("google", "Google"),
+                          ("adguard", "AdGuard")):
         if key in name.lower():
             name = readable
     return {"name": name, "encrypted": bool(re.search(r"forward-tls-upstream:\s*yes", text))}
