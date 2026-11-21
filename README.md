@@ -54,8 +54,9 @@ DNS from those addresses.)
 - On the PC: Node.js 20 or newer, and PowerShell for `deploy.ps1`.
 - Browsers: any recent one. The offline map needs WebGL 2 (every current browser has it); without it the
   map page says so instead of drawing.
-- Disk space: about 30 GB for Wikipedia (full Italian edition); for the maps and the address index it depends on
-  the country, and the installer says how much before downloading anything. Italy, for example: 5 GB of maps and
+- Disk space: it depends on the Wikipedia edition and on the country, and the installer says how much before
+  downloading anything. Wikipedia in Italian takes about 30 GB with images (`maxi`), 10 GB without (`nopic`), 3 GB
+  with the introductions only (`mini`); in English about 115, 52 and 12 GB. Italy, for example: 5 GB of maps and
   a 1 GB address index (6 GB free while it is built); Germany or France take more, Switzerland or Denmark less.
 
 ## How it is built
@@ -100,9 +101,11 @@ The package holds the `pi/` folder with the website already built (`site.tar.gz`
 [artifact attestations](https://github.com/Dxz0-96/raspberry-hub/attestations) prove that this repository's
 release workflow built it: `gh attestation verify raspberry-hub-$V.tar.gz --repo Dxz0-96/raspberry-hub`.
 On a new installation it asks which country the offline map and the address search should cover (Italy, France,
-Germany, Switzerland and the other countries of [`pi/countries.json`](pi/countries.json)), with how much space each
-takes; `sudo MAP_COUNTRY=FR bash hub-install.sh` answers in advance. The country is a place, not a language: the
-hub follows the language of each browser, and the map of France works in an Italian browser too. Then continue
+Germany, Switzerland and the other countries of [`pi/countries.json`](pi/countries.json)), then which offline
+Wikipedia, by language and variant, with how much space each takes;
+`sudo MAP_COUNTRY=FR WIKI_LANGUAGE=en WIKI_VARIANT=nopic bash hub-install.sh` answers in advance. The two are
+separate choices: the map of France and the English Wikipedia go well together, and the hub itself follows the
+language of each browser. Then continue
 from step 3 below.
 
 ### From a PC
@@ -127,7 +130,8 @@ from step 3 below.
 
    This builds the site, copies the `pi/` folder to `~/pi-setup/hub` and runs `sudo bash hub-install.sh`
    (it asks for your sudo password on the Pi). On a new installation it asks which country the offline map and
-   the address search should cover, with the space each takes (`MAP_COUNTRY=FR` in `.env` answers in advance).
+   the address search should cover, and which Wikipedia (language and variant), with the space each takes
+   (`MAP_COUNTRY`, `WIKI_LANGUAGE` and `WIKI_VARIANT` in `.env` answer in advance).
    The installer can also be run by hand, step by step:
    `prepare`, `site`, `enable`, `monthly` (see the top of [`pi/hub-install.sh`](pi/hub-install.sh)).
 
@@ -237,8 +241,8 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Update Wikipedia, maps, addresses now | On the Pi: `sudo hub-update.sh` (or `wiki`, `maps`, `addresses`) |
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
 | Install a new release | "Update" in the footer of the hub, when it says a new version is available; or on the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
-| Change the country of the map and of the address search | On the Pi: `sudo hub-install.sh configure` (shows the sizes, then downloads in the background) |
-| Change the Wikipedia variant, or use a map box of your own | `/etc/hub.conf` (`WIKI_VARIANT`, `MAP_BBOX`), then `sudo hub-update.sh` |
+| Change the country of the map, or the language or variant of Wikipedia | On the Pi: `sudo hub-install.sh configure` (shows the sizes, then downloads in the background; the old content stays until the new one is verified) |
+| Use a map box of your own | `/etc/hub.conf` (`MAP_BBOX`), then `sudo hub-update.sh maps` |
 | Change the language | In the browser settings (preferred languages): the hub follows them |
 
 With ad blocking paused, the network monitor reports it as a fault on Telegram after two minutes.
@@ -289,8 +293,8 @@ Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync
 | Sunday 04:30 | Certificate check (`pi-setup` package) |
 | 1st of the month, 03:00 | After the system and Pi-hole: new Wikipedia edition if one came out, maps and address index rebuilt, then reboot |
 
-Offline Wikipedia has no incremental updates: each edition is a new file (about 30 GB), downloaded only when
-it comes out. Maps (Italy: 4.7 GB) and addresses are rebuilt when they are more than 20 days old, or right away
+Offline Wikipedia has no incremental updates: each edition is a new file (Italian with images: about 30 GB),
+downloaded only when it comes out. Maps (Italy: 4.7 GB) and addresses are rebuilt when they are more than 20 days old, or right away
 when the country changes.
 
 ## Looking after the Raspberry Pi

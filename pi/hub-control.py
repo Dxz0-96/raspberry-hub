@@ -31,6 +31,7 @@ DNS statistics: read every 30 seconds from the Pi-hole API (127.0.0.1:8080) with
 """
 import base64
 import binascii
+import glob
 import hashlib
 import hmac
 import json
@@ -94,6 +95,11 @@ VALID_TOKEN = re.compile(r"[A-Za-z0-9_-]{32,64}")
 # http.server writes response headers exactly as given: a CR or LF in one would split the response.
 UNSAFE_HEADER = re.compile(r"[\x00-\x1f\x7f]")
 VALID_URL = re.compile(r"^(https?://[^\s<>\"'\\]{3,280}|/[^\s<>\"'\\]{0,280})$")
+
+
+def present(path):
+    """The content a service needs is there: a path, or a pattern ("/srv/hub/zim/wikipedia_*.zim", any language)."""
+    return bool(glob.glob(path)) if any(c in path for c in "*?[") else os.path.exists(path)
 
 
 def time_zone():
@@ -763,7 +769,7 @@ class Watcher(threading.Thread):
             if os.path.exists(off_marker(ident)):
                 return {"state": "off", "detail": "", "switch": controllable}
             requires = s.get("requires")
-            if requires and not os.path.exists(requires):
+            if requires and not present(requires):
                 return {"state": "missing", "detail": "", "switch": False}
             active, _ = run(["systemctl", "is-active", "--quiet", unit], timeout=5)
             if active:
@@ -818,7 +824,7 @@ def switch(service, on):
         except OSError:
             return False, "state_not_saved", "Could not save the service state on the Raspberry Pi."
         requires = service.get("requires")
-        if on and requires and not os.path.exists(requires):
+        if on and requires and not present(requires):
             return True, "", ""
         ok, _ = run(["systemctl", "--no-ask-password", "start" if on else "stop", unit], timeout=60)
         if not ok and not service.get("optional"):

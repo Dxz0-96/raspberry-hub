@@ -151,6 +151,34 @@ test.describe("Wikipedia", () => {
     });
   });
 
+  test("opens the edition the Raspberry Pi has downloaded, whatever its language", async ({ page }) => {
+    await page.route("**/status.json", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.wikipedia.language = "en";
+      await route.fulfill({ response, json: data });
+    });
+    await page.goto("/wikipedia/");
+    await expect(article(page).locator(".mw-parser-output")).toContainText("Welcome to Wikipedia");
+    await expect(page.locator("iframe.wiki-article")).toHaveAttribute("src", /\/wiki\/content\/wikipedia_en\//);
+    const searched = page.waitForRequest((r) => r.url().includes("/wiki/search") && r.url().includes("books.name=wikipedia_en"));
+    await field(page).fill("garibaldi");
+    await field(page).press("Enter");
+    await searched;
+    await expect(page.locator(".wiki-count")).toHaveText("Results 1-20 of 11,661 for “garibaldi”");
+  });
+
+  test("a Raspberry Pi with older scripts has the Italian edition", async ({ page }) => {
+    await page.route("**/status.json", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      delete data.wikipedia.language;
+      await route.fulfill({ response, json: data });
+    });
+    await page.goto("/wikipedia/");
+    await expect(page.locator("iframe.wiki-article")).toHaveAttribute("src", /\/wiki\/content\/wikipedia_it\//);
+  });
+
   test("Wikipedia switched off: explains what to do and leads back to the hub", async ({ page }) => {
     await serviceIn(page, "wikipedia", "off");
     await page.goto("/wikipedia/");

@@ -16,7 +16,7 @@
       "icon": "/icons/wikipedia.svg",
       "type": "unit",
       "unit": "kiwix-hub.service",
-      "requires": "/srv/hub/zim/wikipedia_it.zim"
+      "requires": "/srv/hub/zim/wikipedia_*.zim"
     },
     {
       "id": "maps",

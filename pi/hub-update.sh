@@ -89,7 +89,9 @@ target = os.path.realpath(link) if os.path.exists(link) else None
 m = re.search(r"_(\d{4}-\d{2})\.zim$", target or "")
 status = {
     "updated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-    "wikipedia": {"edition": m.group(1) if m else None, "bytes": size(target) if target else None,
+    # language: the book the hub opens on kiwix-serve, wikipedia_<language>
+    "wikipedia": {"language": os.environ["WIKI_LANGUAGE"], "edition": m.group(1) if m else None,
+                  "bytes": size(target) if target else None,
                   "result": read(f"{hub}/state/wiki.result"), "running": os.path.exists(f"{hub}/state/wiki.running")},
     "maps": {"build": (read(f"{hub}/maps/basemap.build") or "")[:8] or None,
              "bytes": size(f"{hub}/maps/basemap.pmtiles"), "result": read(f"{hub}/state/maps.result"),
@@ -126,6 +128,7 @@ wiki_sha256() {   # $1 = file name: the SHA-256 published next to it
 
 do_wiki() {
   local latest dest link current bytes needed sha expected
+  [[ $WIKI_LANGUAGE =~ ^[a-z][a-z-]*$ ]] || { failed wiki "WIKI_LANGUAGE=$WIKI_LANGUAGE is not a Kiwix language code (it, en...)"; return 1; }
   latest=$(latest_wiki)
   [ -n "$latest" ] || { failed wiki "list of editions not readable ($WIKI_URL)"; return 1; }
   dest="$ZIM/$latest"
@@ -162,14 +165,34 @@ do_wiki() {
   fi
 
   ln -sfn "$latest" "$link.new" && mv -Tf "$link.new" "$link"
+  # Another language before (sudo hub-install.sh configure, or WIKI_LANGUAGE changed by hand): its edition and
+  # its link go only now that the new one is installed and verified, so Wikipedia never stays without one.
+  remove_other_languages
   # restart and not try-restart: on the first installation the service never started (the file was missing).
   # If Wikipedia is switched off from the hub, the unit condition keeps it stopped.
   systemctl restart kiwix-hub.service 2>/dev/null || true
-  # remove earlier editions of the same variant
+  # remove earlier editions and other variants of the same language
   find "$ZIM" -maxdepth 1 -type f -name "wikipedia_${WIKI_LANGUAGE}_all_*.zim" ! -name "$latest" -delete
   find "$ZIM" -maxdepth 1 -type f -name "*.zim.part" ! -name "$latest.part" -delete
   log "wiki: installed edition $latest"
   result wiki ok
+}
+
+zim_language() {  # $1 = file in the zim folder: its language ("it" for wikipedia_it.zim and wikipedia_it_all_...)
+  local name="${1##*/wikipedia_}"
+  name="${name%.zim}"
+  echo "${name%%_*}"
+}
+
+remove_other_languages() {
+  local file language
+  for file in "$ZIM"/wikipedia_*.zim; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    language=$(zim_language "$file")
+    [ "$language" = "$WIKI_LANGUAGE" ] && continue
+    rm -f "$file"
+    log "wiki: removed $(basename "$file") (language $language, no longer in WIKI_LANGUAGE)"
+  done
 }
 
 # --------------------------------------------------------------------------- Maps

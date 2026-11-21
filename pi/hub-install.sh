@@ -13,10 +13,11 @@
 #   sudo bash hub-install.sh           prepare + site + enable + monthly
 #
 #   sudo bash hub-install.sh watchdog  applies WATCHDOG from /etc/hub.conf (hardware watchdog on or off)
-#   sudo hub-install.sh configure [--country XX]
-#                                      chooses the country of the map and of the address search (see
-#                                      hub-configure.py; a new installation asks it once, at a terminal, and
-#                                      MAP_COUNTRY=XX in the environment answers in advance)
+#   sudo hub-install.sh configure [--country XX] [--wiki-language xx] [--wiki-variant maxi|nopic|mini]
+#                                      chooses the country of the map and of the address search, and the
+#                                      Wikipedia edition (see hub-configure.py; a new installation asks them once,
+#                                      at a terminal; MAP_COUNTRY, WIKI_LANGUAGE and WIKI_VARIANT in the environment
+#                                      answer in advance)
 #   sudo hub-install.sh upgrade [X.Y.Z] [--yes]
 #                                      downloads a release package from GitHub, checks it and installs it
 #                                      (the latest release unless a version is given; see hub-upgrade.py)
@@ -111,6 +112,7 @@ do_prepare() {
   echo "== Scripts"
   for f in hub-search.py hub-control.py build-search-index.py hub-upgrade.py hub-configure.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
   install -o root -g root -m 644 "$HERE/countries.json" "$LIB/countries.json"
+  install -o root -g root -m 755 "$HERE/kiwix-start" "$LIB/kiwix-start"
   # the hub compares it with the version of the website and suggests an update when they differ
   printf '%s\n' "$HUB_VERSION" > "$LIB/VERSION"; chmod 644 "$LIB/VERSION"
   echo "   raspberry-hub $HUB_VERSION"
@@ -119,11 +121,11 @@ do_prepare() {
   done
   for f in "$LIB"/*.py /usr/local/sbin/hub-control-setpass /usr/local/sbin/hub-service; do python3 -m py_compile "$f"; done
   rm -rf "$LIB/__pycache__" /usr/local/sbin/__pycache__
-  for f in hub-update.sh hub-cert-sync hub-check.sh hub-install.sh; do bash -n "/usr/local/sbin/$f"; done
+  for f in /usr/local/sbin/hub-update.sh /usr/local/sbin/hub-cert-sync /usr/local/sbin/hub-check.sh            /usr/local/sbin/hub-install.sh "$LIB/kiwix-start"; do bash -n "$f"; done
   if [ ! -f /etc/hub.conf ]; then
     install -o root -g root -m 644 "$HERE/hub.conf" /etc/hub.conf
-    # a new installation: which country to download, asked before anything is downloaded
-    python3 "$LIB/hub-configure.py" --first-install ${MAP_COUNTRY:+--country "$MAP_COUNTRY"}
+    # a new installation: which country and which Wikipedia to download, asked before anything is downloaded
+    python3 "$LIB/hub-configure.py" --first-install ${MAP_COUNTRY:+--country "$MAP_COUNTRY"}       ${WIKI_LANGUAGE:+--wiki-language "$WIKI_LANGUAGE"} ${WIKI_VARIANT:+--wiki-variant "$WIKI_VARIANT"}
   fi
   [ -f /srv/hub/config/services.json ] || install -o hubctl -g hubctl -m 664 "$HERE/services.json" /srv/hub/config/services.json
   for f in "$HERE"/icons/*; do
@@ -354,6 +356,6 @@ case "$WHAT" in
   monthly) do_monthly ;;
   disable) do_disable ;;
   all)     do_prepare; do_site; do_enable; do_monthly ;;
-  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable|watchdog|configure [--country XX]|upgrade [X.Y.Z] [--yes]]" >&2; exit 1 ;;
+  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable|watchdog|configure [--country XX] [--wiki-language xx]|upgrade [X.Y.Z] [--yes]]" >&2; exit 1 ;;
 esac
 echo "== Done."
