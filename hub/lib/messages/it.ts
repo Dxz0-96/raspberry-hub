@@ -302,7 +302,7 @@ export const it: Messages = {
   maps: {
     opening: "Apro la mappa…",
     searchLabel: "Cerca un indirizzo o una località",
-    placeholder: "Via Garibaldi 12, Milano",
+    placeholder: "Via e numero civico, comune",
     clear: "Cancella la ricerca",
     results: "Risultati",
     searching: "Cerco…",

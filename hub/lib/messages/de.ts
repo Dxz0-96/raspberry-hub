@@ -307,7 +307,7 @@ export const de: Messages = {
   maps: {
     opening: "Karte wird geöffnet…",
     searchLabel: "Adresse oder Ort suchen",
-    placeholder: "Via Garibaldi 12, Milano",
+    placeholder: "Straße und Hausnummer, Ort",
     clear: "Suche löschen",
     results: "Ergebnisse",
     searching: "Suche läuft…",

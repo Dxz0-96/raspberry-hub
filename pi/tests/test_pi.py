@@ -14,6 +14,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -73,6 +74,33 @@ def build_index(path):
     result = subprocess.run([sys.executable, os.path.join(PI, "build-search-index.py"), "--out", path],
                             input=photon_dump(), capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stderr
+
+
+def foreign_dump():
+    """Addresses of other countries, as the dump of each would have them: German, Swiss, French, Danish and Greek
+    names, with the filler streets the --check of the index needs."""
+    def place(name, kind, lon, lat, city, importance, **extra):
+        return {"name": {"name": name}, "address_type": kind, "osm_key": "place" if kind == "city" else "highway",
+                "osm_value": "city" if kind == "city" else "residential", "centroid": [lon, lat],
+                "importance": importance, "address": {"city": city}, **extra}
+    lines = [{"type": "NominatimDumpFile", "content": {"data_timestamp": "2026-11-08T00:00:00Z"}},
+             {"type": "Place", "content": [
+                 place("Berlin", "city", 13.40, 52.52, "Berlin", 0.99),
+                 place("Zürich", "city", 8.54, 47.37, "Zürich", 0.9),
+                 place("Paris", "city", 2.35, 48.86, "Paris", 0.95),
+                 place("Αθήνα", "city", 23.73, 37.98, "Αθήνα", 0.8),
+                 place("Hauptstraße", "street", 13.41, 52.53, "Berlin", 0.3, postcode="10115"),
+                 place("Bahnhofstrasse", "street", 8.539, 47.372, "Zürich", 0.3, postcode="8001"),
+                 place("Rue de la Paix", "street", 2.331, 48.869, "Paris", 0.3, postcode="75002"),
+                 place("Nørregade", "street", 12.57, 55.68, "København", 0.2, postcode="1165"),
+                 {"housenumber": "5", "centroid": [13.411, 52.531], "postcode": "10115",
+                  "address": {"city": "Berlin", "street": "Hauptstraße"}},
+                 {"housenumber": "12", "centroid": [2.332, 48.8691], "postcode": "75002",
+                  "address": {"city": "Paris", "street": "Rue de la Paix"}},
+             ]}]
+    for i in range(1100):
+        lines.append({"type": "Place", "content": place(f"Teststraße {i}", "street", 10 + i / 1000, 50, "Kassel", 0.01)})
+    return "\n".join(json.dumps(line, ensure_ascii=False) for line in lines) + "\n"
 
 
 def write_credentials(path, password=b"test1234"):
@@ -181,6 +209,129 @@ class AddressIndex(unittest.TestCase):
         self.assertEqual(self.run_search(old, "via garibaldi 12 milano")[0]["type"], "house_number")
         again = subprocess.run([sys.executable, self.builder, "--migrate", old], capture_output=True, text=True)
         self.assertIn("already up to date", again.stdout)
+
+
+class AddressesOfOtherCountries(unittest.TestCase):
+    """An index built with --languages: the street rules of those languages, letters like ß and ø, other scripts,
+    postcodes of 4 digits and house numbers written before the street."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.mkdtemp()
+        cls.db = os.path.join(cls.folder, "addresses.db")
+        cls.builder = os.path.join(PI, "build-search-index.py")
+        result = subprocess.run([sys.executable, cls.builder, "--out", cls.db, "--languages", "de,fr"],
+                                input=foreign_dump(), capture_output=True, text=True, encoding="utf-8")
+        assert result.returncode == 0, result.stderr
+        cls.search = load("hub_search_foreign", "hub-search.py")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.folder, ignore_errors=True)
+
+    def first(self, query):
+        self.search.DB = self.db
+        connection = self.search.open_db()
+        try:
+            return self.search.search(connection, query)[0]
+        finally:
+            connection.close()
+
+    def test_the_index_says_its_languages_and_answers_the_check(self):
+        db = sqlite3.connect(self.db)
+        meta = dict(db.execute("SELECT key, value FROM meta"))
+        db.close()
+        self.assertEqual((meta["languages"], meta["norm"]), ("de,fr", "2"))
+        # the test search uses the most important place of the index, not "roma"
+        self.assertEqual(subprocess.run([sys.executable, self.builder, "--check", self.db]).returncode, 0)
+
+    def test_german_abbreviation_and_sharp_s(self):
+        found = self.first("hauptstr. 5 berlin")
+        self.assertEqual((found["type"], found["name"]), ("house_number", "Hauptstraße 5"))
+        self.assertEqual(self.first("hauptstrasse berlin")["name"], "Hauptstraße")
+        self.assertEqual(self.first("Hauptstraße")["name"], "Hauptstraße")
+
+    def test_french_house_number_before_the_street(self):
+        found = self.first("12 rue de la paix paris")
+        self.assertEqual((found["type"], found["name"]), ("house_number", "Rue de la Paix 12"))
+
+    def test_four_digit_postcode(self):
+        found = self.first("8001")
+        self.assertEqual((found["type"], found["name"], found["detail"]), ("postcode", "8001", "Zürich"))
+        self.assertEqual(self.first("bahnhofstrasse 8001")["name"], "Bahnhofstrasse")
+
+    def test_letters_without_accents_and_other_scripts(self):
+        self.assertEqual(self.first("norregade")["name"], "Nørregade")
+        self.assertEqual(self.first("αθηνα")["name"], "Αθήνα")
+
+    def test_an_index_of_an_older_version_keeps_the_italian_rules(self):
+        index = self.search.Index({"schema": "3"})
+        self.assertEqual((index.languages, index.norm_version), (["it"], 1))
+        self.assertIn("piazza", index.rules.street_types)
+        self.assertEqual(index.norm("Straße"), "stra e")           # as it was built, so that it still matches
+        self.assertEqual(self.search.Index({"languages": "", "norm": "2"}).rules.street_types, set())
+
+
+class CountryChoice(unittest.TestCase):
+    """hub-configure.py (sudo hub-install.sh configure) on a copy of hub.conf, without questions."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+        self.conf = os.path.join(self.folder, "hub.conf")
+        shutil.copy(os.path.join(PI, "hub.conf"), self.conf)
+        with open(os.path.join(PI, "countries.json"), encoding="utf-8") as f:
+            self.countries = {c["code"]: c for c in json.load(f)["countries"]}
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def configure(self, *args):
+        return subprocess.run([sys.executable, os.path.join(PI, "hub-configure.py"), *args], capture_output=True,
+                              text=True, stdin=subprocess.DEVNULL, env={**os.environ, "HUB_CONF": self.conf})
+
+    def conf_values(self):
+        with open(self.conf, encoding="utf-8") as f:
+            return dict(re.findall(r"^([A-Z_]+)=(.*)$", f.read(), re.M))
+
+    def test_the_list_of_countries_is_sound(self):
+        languages = set(load("hub_search_rules", "hub-search.py").LANGUAGES)
+        self.assertIn("IT", self.countries)
+        for code, country in self.countries.items():
+            self.assertRegex(code, r"^[A-Z]{2}$")
+            west, south, east, north = map(float, country["bbox"].split(","))
+            self.assertTrue(-180 <= west < east <= 180 and -90 <= south < north <= 90, code)
+            self.assertRegex(country["addresses"], r"^[a-z-]+/[a-z-]+/photon-dump-[a-z-]+-1\.0-latest\.jsonl\.zst$")
+            self.assertLessEqual(set(filter(None, country["address_languages"].split(","))), languages, code)
+        # the template of hub.conf is the default country
+        self.assertEqual(self.conf_values()["MAP_BBOX"], self.countries["IT"]["bbox"])
+        self.assertTrue(self.conf_values()["ADDRESS_DUMP_URL"].endswith(self.countries["IT"]["addresses"]))
+
+    def test_choosing_a_country_writes_its_settings_and_nothing_else(self):
+        before = self.conf_values()
+        result = self.configure("--country", "fr")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = self.conf_values()
+        france = self.countries["FR"]
+        self.assertEqual((values["MAP_COUNTRY"], values["MAP_BBOX"], values["ADDRESS_LANGUAGES"]),
+                         ("FR", france["bbox"], france["address_languages"]))
+        self.assertTrue(values["ADDRESS_DUMP_URL"].endswith(france["addresses"]))
+        unchanged = {k: v for k, v in before.items()
+                     if k not in ("MAP_COUNTRY", "MAP_BBOX", "ADDRESS_DUMP_URL", "ADDRESS_LANGUAGES")}
+        self.assertEqual({k: values[k] for k in unchanged}, unchanged)
+        with open(self.conf, encoding="utf-8") as f:
+            self.assertIn("# Map and address search: the country", f.read())
+        self.assertIn("as before", self.configure("--country", "FR").stdout)
+
+    def test_unknown_country_and_no_terminal(self):
+        result = self.configure("--country", "XX")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("CH  Switzerland", result.stdout)
+        # nobody to ask (an upgrade, a script): nothing changes
+        before = self.conf_values()
+        quiet = self.configure("--first-install")
+        self.assertEqual(quiet.returncode, 0, quiet.stderr)
+        self.assertIn("Italy", quiet.stdout)
+        self.assertEqual(self.conf_values(), before)
 
 
 class UpgradeFrom1x(unittest.TestCase):
@@ -294,6 +445,25 @@ class UpgradeFrom1x(unittest.TestCase):
         self.assertEqual(conf.count("WATCHDOG=no"), 1)
         self.assertIn("nothing to migrate", self.migrate())
         self.assertEqual(self.read("/etc/hub.conf"), conf)
+
+
+    def test_the_country_of_an_older_hub_conf(self):
+        with open(os.path.join(PI, "hub.conf"), encoding="utf-8") as f:
+            template = f.read()
+        # a 2.1 file: no MAP_COUNTRY nor ADDRESS_LANGUAGES yet
+        old = re.sub(r"(?m)^(# Map and address search.*\n)(#.*\n)*MAP_COUNTRY=.*\n\n", "", template)
+        old = re.sub(r"(?m)^\n(#.*\n)+ADDRESS_LANGUAGES=.*\n", "", old)
+        self.assertNotIn("MAP_COUNTRY", old)
+        for url, country, languages in (
+                ("https://download1.graphhopper.com/public/europe/italy/photon-dump-italy-1.0-latest.jsonl.zst", "IT", "it"),
+                ("https://download1.graphhopper.com/public/europe/france-monacco/photon-dump-france-monacco-1.0-latest.jsonl.zst", "FR", "fr"),
+                ("https://example.org/my-own-dump.jsonl.zst", "", "")):
+            self.write("/etc/hub.conf", re.sub(r"(?m)^ADDRESS_DUMP_URL=.*$", f"ADDRESS_DUMP_URL={url}", old))
+            self.migrate()
+            conf = self.read("/etc/hub.conf")
+            self.assertEqual(re.findall(r"(?m)^MAP_COUNTRY=(.*)$", conf), [country], url)
+            self.assertEqual(re.findall(r"(?m)^ADDRESS_LANGUAGES=(.*)$", conf), [languages], url)
+            self.assertIn("nothing to migrate", self.migrate())
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")

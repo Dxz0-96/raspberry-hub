@@ -1,0 +1,29 @@
+{
+  "_comment": "The countries hub-install.sh offers for the map and the address search. code: ISO 3166-1 alpha-2. bbox: west,south,east,north (the box pmtiles extract downloads). addresses: the Photon dump by GraphHopper, under https://download1.graphhopper.com/public/. address_languages: the languages of the street names, for the rules of hub-search.py (street types, articles); empty = no rules, plain words.",
+  "countries": [
+    {"code": "AT", "name": "Austria", "bbox": "9.5,46.3,17.2,49.1", "addresses": "europe/austria/photon-dump-austria-1.0-latest.jsonl.zst", "address_languages": "de"},
+    {"code": "BE", "name": "Belgium", "bbox": "2.5,49.4,6.5,51.6", "addresses": "europe/belgium/photon-dump-belgium-1.0-latest.jsonl.zst", "address_languages": "fr,nl"},
+    {"code": "CH", "name": "Switzerland and Liechtenstein", "bbox": "5.9,45.8,10.5,47.9", "addresses": "europe/switzerland-liechtenstein/photon-dump-switzerland-liechtenstein-1.0-latest.jsonl.zst", "address_languages": "de,fr,it"},
+    {"code": "CZ", "name": "Czechia", "bbox": "12.0,48.5,18.9,51.1", "addresses": "europe/czech-republic/photon-dump-czech-republic-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "DE", "name": "Germany", "bbox": "5.8,47.2,15.1,55.1", "addresses": "europe/germany/photon-dump-germany-1.0-latest.jsonl.zst", "address_languages": "de"},
+    {"code": "DK", "name": "Denmark", "bbox": "8.0,54.5,15.2,57.8", "addresses": "europe/denmark/photon-dump-denmark-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "ES", "name": "Spain (mainland and Balearic Islands)", "bbox": "-9.4,35.9,4.4,43.8", "addresses": "europe/spain/photon-dump-spain-1.0-latest.jsonl.zst", "address_languages": "es"},
+    {"code": "FI", "name": "Finland", "bbox": "20.5,59.7,31.6,70.1", "addresses": "europe/finland/photon-dump-finland-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "FR", "name": "France (mainland) and Monaco", "bbox": "-5.2,41.3,9.6,51.1", "addresses": "europe/france-monacco/photon-dump-france-monacco-1.0-latest.jsonl.zst", "address_languages": "fr"},
+    {"code": "GB", "name": "United Kingdom and Ireland", "bbox": "-10.7,49.8,1.8,60.9", "addresses": "europe/british-islands/photon-dump-british-islands-1.0-latest.jsonl.zst", "address_languages": "en"},
+    {"code": "GR", "name": "Greece", "bbox": "19.3,34.8,29.7,41.8", "addresses": "europe/greece/photon-dump-greece-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "HR", "name": "Croatia", "bbox": "13.4,42.3,19.5,46.6", "addresses": "europe/croatia/photon-dump-croatia-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "HU", "name": "Hungary", "bbox": "16.1,45.7,22.9,48.6", "addresses": "europe/hungary/photon-dump-hungary-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "IE", "name": "Ireland", "bbox": "-10.7,51.4,-5.9,55.4", "addresses": "europe/ireland/photon-dump-ireland-1.0-latest.jsonl.zst", "address_languages": "en"},
+    {"code": "IT", "name": "Italy, San Marino and Vatican City", "bbox": "6.6,35.4,18.6,47.2", "addresses": "europe/italy/photon-dump-italy-1.0-latest.jsonl.zst", "address_languages": "it"},
+    {"code": "LU", "name": "Luxembourg", "bbox": "5.7,49.4,6.6,50.2", "addresses": "europe/luxemburg/photon-dump-luxemburg-1.0-latest.jsonl.zst", "address_languages": "fr,de"},
+    {"code": "MT", "name": "Malta", "bbox": "14.1,35.8,14.6,36.1", "addresses": "europe/malta/photon-dump-malta-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "NL", "name": "Netherlands", "bbox": "3.3,50.7,7.3,53.6", "addresses": "europe/netherlands/photon-dump-netherlands-1.0-latest.jsonl.zst", "address_languages": "nl"},
+    {"code": "NO", "name": "Norway", "bbox": "4.5,57.9,31.2,71.2", "addresses": "europe/norway/photon-dump-norway-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "PL", "name": "Poland", "bbox": "14.1,49.0,24.2,54.9", "addresses": "europe/poland/photon-dump-poland-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "PT", "name": "Portugal (mainland)", "bbox": "-9.6,36.9,-6.1,42.2", "addresses": "europe/portugal/photon-dump-portugal-1.0-latest.jsonl.zst", "address_languages": "pt"},
+    {"code": "SE", "name": "Sweden", "bbox": "10.9,55.3,24.2,69.1", "addresses": "europe/sweden/photon-dump-sweden-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "SI", "name": "Slovenia", "bbox": "13.3,45.4,16.6,46.9", "addresses": "europe/slovenia/photon-dump-slovenia-1.0-latest.jsonl.zst", "address_languages": ""},
+    {"code": "SK", "name": "Slovakia", "bbox": "16.8,47.7,22.6,49.6", "addresses": "europe/slovakia/photon-dump-slovakia-1.0-latest.jsonl.zst", "address_languages": ""}
+  ]
+}

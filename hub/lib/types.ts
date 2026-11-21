@@ -82,6 +82,8 @@ export interface SystemInfo {
   /** The last hub-check.sh --report (after boot or an upgrade); null when there is none */
   check?: { time: string; failed: number; failures: string[] } | null;
   uptime: number;
+  /** The time zone of the Raspberry Pi ("Europe/Rome"); missing on installs older than this field */
+  timezone?: string | null;
   processes: { name: string; cpu: number }[];
   alerts: HardwareAlert[];
 }

@@ -312,7 +312,7 @@ export const fr: Messages = {
   maps: {
     opening: "Ouverture de la carte…",
     searchLabel: "Rechercher une adresse ou un lieu",
-    placeholder: "Via Garibaldi 12, Milano",
+    placeholder: "Rue et numéro, commune",
     clear: "Effacer la recherche",
     results: "Résultats",
     searching: "Recherche…",

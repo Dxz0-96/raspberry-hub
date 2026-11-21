@@ -75,7 +75,13 @@ export function shortDay(seconds: number, locale: Locale): string {
   return new Date(seconds * 1000).toLocaleDateString(locale, { day: "numeric", month: "short" });
 }
 
-/** A build date for the footer: "November 18, 2026", "18 novembre 2026" */
-export function longDate(iso: string, locale: Locale): string {
-  return new Date(iso).toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Rome" });
+/** A build date for the footer: "November 18, 2026", "18 novembre 2026", in the time zone of the Raspberry Pi
+ *  (where the hub is) when it is known, otherwise in the one of the browser */
+export function longDate(iso: string, locale: Locale, timeZone?: string | null): string {
+  const options: Intl.DateTimeFormatOptions = { day: "numeric", month: "long", year: "numeric" };
+  try {
+    return new Date(iso).toLocaleDateString(locale, { ...options, timeZone: timeZone ?? undefined });
+  } catch {
+    return new Date(iso).toLocaleDateString(locale, options);       // a zone this browser does not know
+  }
 }

@@ -307,7 +307,7 @@ export const en = {
   maps: {
     opening: "Opening the map…",
     searchLabel: "Search for an address or a place",
-    placeholder: "Via Garibaldi 12, Milano",
+    placeholder: "Street and house number, town",
     clear: "Clear the search",
     results: "Results",
     searching: "Searching…",
