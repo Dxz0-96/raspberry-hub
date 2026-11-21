@@ -5,7 +5,7 @@ import Link from "next/link";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
-import { layers, namedFlavor } from "@protomaps/basemaps";
+import { language_script_pairs, layers, namedFlavor } from "@protomaps/basemaps";
 import { ChevronLeft, Search, X } from "lucide-react";
 import { BASE, DEMO, PREFIX, searchAddresses } from "@/lib/hub";
 import { useI18n, type Locale } from "@/lib/i18n";
@@ -35,6 +35,11 @@ function tilesUrl(): string {
   return `${BASE || window.location.origin + PREFIX}/tiles/basemap.pmtiles`;
 }
 
+/** The labels of the basemap in the hub language when Protomaps has it, otherwise in English. */
+function labelLanguage(locale: Locale): string {
+  return language_script_pairs.some((pair) => pair.lang === locale) ? locale : "en";
+}
+
 function mapStyle(dark: boolean, locale: Locale): maplibregl.StyleSpecification {
   const origin = window.location.origin + PREFIX;
   const theme = dark ? "dark" : "light";
@@ -50,7 +55,7 @@ function mapStyle(dark: boolean, locale: Locale): maplibregl.StyleSpecification 
           '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, <a href="https://protomaps.com">Protomaps</a>',
       },
     },
-    layers: layers("protomaps", namedFlavor(theme), { lang: locale }) as maplibregl.LayerSpecification[],
+    layers: layers("protomaps", namedFlavor(theme), { lang: labelLanguage(locale) }) as maplibregl.LayerSpecification[],
   };
 }
 

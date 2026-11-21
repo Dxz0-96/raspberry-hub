@@ -41,7 +41,8 @@ DNS from those addresses.)
 - **DNS at home**: how a query travels from your devices through Pi-hole and Unbound, with real numbers.
 - **Offline maps** (Protomaps) with **address search** down to the house number, from OpenStreetMap data.
 - **Offline Wikipedia** (Kiwix) restyled to match the hub, in light and dark.
-- **English and Italian**, light and dark theme, usable on phones, keyboard and screen readers.
+- **In the language of the browser**: English, Italian, Spanish, French and German; light and dark theme,
+  usable on phones, keyboard and screen readers.
 
 ## Requirements
 
@@ -230,16 +231,20 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
 | Install a new release | "Update" in the footer of the hub, when it says a new version is available; or on the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
 | Change the Wikipedia variant or the map area | `/etc/hub.conf`, then `sudo hub-update.sh` |
-| Change the language | `EN` / `IT` in the header |
+| Change the language | In the browser settings (preferred languages): the hub follows them |
 
 With ad blocking paused, the network monitor reports it as a fault on Telegram after two minutes.
 
 ### Language
 
-The hub speaks English and Italian. On a device's first visit it uses the first of the two found in the
-browser's preferred languages (English if neither is there). The `EN` / `IT` buttons in the header change it,
-and the choice is remembered on that device, like the theme. The labels printed on the board drawing stay in
-English in both languages, like a real silkscreen.
+The hub speaks English, Italian, Spanish, French and German, and always uses the language of the browser: the
+first of its preferred languages that the hub knows (`fr-CH` counts as French), English if there is none. There
+is no switch in the page: to change it, change the preferred languages in the browser settings, and the hub
+follows right away. The map labels follow the same language. The labels printed on the board drawing stay in
+English, like a real silkscreen.
+
+The language of the interface is not a place: it changes neither the map area, nor the address data, nor the
+Wikipedia edition that the Raspberry Pi downloads.
 
 ## Credentials
 
@@ -340,8 +345,9 @@ after every release, or by hand from the Actions page.
 The maps page keeps the position in the address (`/maps/#position=zoom/lat/lon`): reloading keeps it, and
 such an address can be saved as a bookmark.
 
-All interface text lives in [`hub/lib/messages/en.ts`](hub/lib/messages/en.ts) and
-[`hub/lib/messages/it.ts`](hub/lib/messages/it.ts); TypeScript checks that the two have the same keys.
+All interface text lives in [`hub/lib/messages/`](hub/lib/messages/), one dictionary per language, listed in
+[`index.ts`](hub/lib/messages/index.ts); TypeScript and `tests/i18n.spec.ts` check that they all have the keys of
+the English one.
 The list of services is not in the code: on the Pi it is `/srv/hub/config/services.json`.
 
 ## Tests
@@ -350,7 +356,7 @@ The list of services is not in the code: on the Pi it is `/srv/hub/config/servic
 |---|---|
 | `npm run typecheck` (in `hub/`) | TypeScript |
 | `npm run smoke` (in `hub/`, after a build) | Every page and API of the built site answers, served by the mock Raspberry Pi |
-| `npx playwright test` (in `hub/`) | End-to-end: home, switches and login, maps, Wikipedia, English and Italian, on desktop and on a simulated phone |
+| `npx playwright test` (in `hub/`) | End-to-end: home, switches and login, maps, Wikipedia, every interface language, on desktop and on a simulated phone |
 | `python3 -m unittest discover -s pi/tests` | Pi scripts: address index and search, upgrade from 1.x, `hub-control` API |
 
 The Playwright tests run on the built site with a small map of central Rome

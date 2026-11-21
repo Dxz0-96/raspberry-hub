@@ -321,7 +321,7 @@ input {
   color: var(--text);
 }
 
-/* ------------------------------------------------------------------ theme, language and session */
+/* ------------------------------------------------------------------ theme and session */
 .picker {
   display: flex;
   padding: 3px;
@@ -349,12 +349,6 @@ input {
 .picker button[aria-pressed="true"] {
   background: var(--text);
   color: var(--page);
-}
-
-.picker.language button {
-  font-family: var(--mono);
-  font-size: 0.8125rem;
-  font-weight: 500;
 }
 
 .session {

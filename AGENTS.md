@@ -37,8 +37,9 @@ The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhe
 ## Rules
 
 1. **Every interface string goes through the dictionaries.** Add the key to `hub/lib/messages/en.ts` and the
-   Italian text to `hub/lib/messages/it.ts`, then read it with `const { t } = useI18n()`. Never hard-code
-   user-visible text in components. Format numbers and dates with `hub/lib/format.ts` and the current
+   translation to every other dictionary in `hub/lib/messages/` (listed in `index.ts`), then read it with
+   `const { t } = useI18n()`. Never hard-code user-visible text in components. The language follows the browser;
+   there is no switch in the page. Format numbers and dates with `hub/lib/format.ts` and the current
    `locale`. The board drawing (`components/Board.tsx`) is the one exception: its labels are an English
    silkscreen in every language.
 2. **The Pi API speaks codes, not sentences.** `hub-control.py` errors are `{"error": "<code>", "message":
