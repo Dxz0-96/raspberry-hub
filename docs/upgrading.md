@@ -10,6 +10,10 @@ The short version is in the README, [Updating](../README.md#updating). In detail
 
 ### 1. Back up (before a major version)
 
+From 2.2 on the installer keeps the version it replaces, by itself, in `/var/lib/raspberry-hub/previous`, and
+`sudo hub-install.sh rollback` goes back to it (see "If something goes wrong" below): this step is for a copy of
+the settings to keep elsewhere, or for an installed version older than 2.2.
+
 On the Raspberry Pi. It saves the settings of the hub, the password, the added services and their icons, the
 switch states and the Caddy configuration; a few MB. The downloaded Wikipedia, maps and address index are not
 included: an update does not replace them, and they can always be downloaded again.
@@ -94,9 +98,14 @@ In the hub, the footer shows the same version as the website; when the two diffe
   `.\deploy.ps1 -Update` again: every step can be repeated.
 - `sudo bash hub-install.sh disable` puts Pi-hole's web interface back on ports 80 and 443 and stops Caddy,
   so DNS and the Pi-hole dashboard keep working while you look into it.
-- There is no automatic downgrade: a major version converts files in place. To go back, restore the backup
-  (`sudo tar -xzf ~/hub-backup.tar.gz -C /`) and install the previous version from its tag
-  (for example `git switch --detach v1.0.0`, then its own `deploy.ps1` and `hub-install.sh`).
+- `sudo hub-install.sh rollback` puts back the version the upgrade replaced, kept before anything changed: its
+  website, scripts, services, Caddyfile and settings, including those a major version converted. The downloaded
+  content stays; when the newer version rebuilt or renamed some of it, the rollback says which
+  `sudo hub-update.sh` part brings it in step. In the hub, the update window offers it ("Go back to X.Y.Z") when
+  the update failed or its check found a problem.
+- Without a kept version (the upgrade came from a version older than 2.2, or the rollback was already used):
+  restore the backup (`sudo tar -xzf ~/hub-backup-YYYY-MM-DD.tar.gz -C /`) and install the previous version from
+  its tag (for example `git switch --detach v2.1.0`, then its own `deploy.ps1 -Update`).
 
 ### Website only
 

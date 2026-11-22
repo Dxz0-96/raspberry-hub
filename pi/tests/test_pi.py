@@ -505,6 +505,100 @@ class WikipediaFiles(unittest.TestCase):
         self.assertIn("removed wikipedia_it.zim", result.stdout)
 
 
+class Rollback(unittest.TestCase):
+    """hub-rollback.py on a fake root: the version kept before an upgrade, and going back to it."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def path(self, p):
+        return os.path.join(self.root, p.lstrip("/"))
+
+    def write(self, p, text):
+        os.makedirs(os.path.dirname(self.path(p)), exist_ok=True)
+        with open(self.path(p), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def read(self, p):
+        with open(self.path(p), encoding="utf-8") as f:
+            return f.read()
+
+    def rollback(self, *args):
+        result = subprocess.run([sys.executable, os.path.join(PI, "hub-rollback.py"), *args], capture_output=True,
+                                text=True, stdin=subprocess.DEVNULL, env={**os.environ, "HUB_ROLLBACK_ROOT": self.root})
+        return result
+
+    def install(self, version, site, conf, extra_unit=False):
+        """What hub-install.sh writes for a version (a few of its files)."""
+        self.write("/usr/local/lib/raspberry-hub/VERSION", version + "\n")
+        self.write("/usr/local/lib/raspberry-hub/hub-control.py", f"# {version}\n")
+        self.write("/srv/hub/site/index.html", site)
+        self.write("/etc/hub.conf", conf)
+        self.write("/usr/local/sbin/hub-update.sh", f"# {version}\n")
+        self.write("/etc/systemd/system/hub-control.service", f"# {version}\n")
+        if extra_unit:
+            self.write("/etc/systemd/system/hub-new.timer", "# only in the new version\n")
+            self.write("/srv/hub/site/new-page/index.html", "new")
+        # not the hub's: never kept, never removed
+        self.write("/usr/local/sbin/pihole-backup.sh", "# pi-setup\n")
+        self.write("/etc/systemd/system/unbound.service", "# system\n")
+
+    def test_kept_before_an_upgrade_and_put_back(self):
+        self.assertIn("no earlier version to keep", self.rollback("snapshot", "2.2.0").stdout)   # a new installation
+        self.install("2.1.0", "old site", "WIKI_LANGUAGE=it\n")
+        self.write("/var/lib/hub-control/maps.off", "")
+        self.write("/srv/hub/search/addresses.db", "index of 2.1.0")
+        self.write("/srv/hub/zim/wikipedia_it_all_maxi_2026-08.zim", "zim")
+        if hasattr(os, "symlink") and sys.platform.startswith("linux"):
+            os.symlink("wikipedia_it_all_maxi_2026-08.zim", self.path("/srv/hub/zim/wikipedia_it.zim"))
+        result = self.rollback("snapshot", "2.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("version 2.1.0 kept", result.stdout)
+        manifest = json.loads(self.read("/var/lib/raspberry-hub/previous/manifest.json"))
+        self.assertEqual((manifest["version"], manifest["replaced_by"]), ("2.1.0", "2.2.0"))
+        self.assertIn("/usr/local/sbin/hub-update.sh", manifest["paths"])
+        self.assertNotIn("/usr/local/sbin/pihole-backup.sh", manifest["paths"])
+        self.assertNotIn("/srv/hub/search/addresses.db", manifest["paths"])       # content is not copied
+
+        # the upgrade: new files, changed settings, a migration that rebuilt the index; then the same again
+        self.install("2.2.0", "new site", "WIKI_LANGUAGE=it\nNEW_SETTING=1\n", extra_unit=True)
+        os.remove(self.path("/var/lib/hub-control/maps.off"))
+        self.write("/srv/hub/search/addresses.db", "index rebuilt by 2.2.0, a bit longer")
+        self.assertIn("2.1.0 stays kept", self.rollback("snapshot", "2.2.0").stdout)
+        self.assertEqual(json.loads(self.read("/var/lib/raspberry-hub/previous/manifest.json"))["version"], "2.1.0")
+        self.assertIn("Version 2.1.0 is kept", self.rollback("status").stdout)
+
+        result = self.rollback("restore", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read("/usr/local/lib/raspberry-hub/VERSION"), "2.1.0\n")
+        self.assertEqual(self.read("/srv/hub/site/index.html"), "old site")
+        self.assertEqual(self.read("/etc/hub.conf"), "WIKI_LANGUAGE=it\n")
+        self.assertTrue(os.path.exists(self.path("/var/lib/hub-control/maps.off")))
+        self.assertFalse(os.path.exists(self.path("/srv/hub/site/new-page")))
+        self.assertFalse(os.path.exists(self.path("/etc/systemd/system/hub-new.timer")))
+        self.assertIn("removed /etc/systemd/system/hub-new.timer", result.stdout)
+        self.assertEqual(self.read("/usr/local/sbin/pihole-backup.sh"), "# pi-setup\n")
+        self.assertTrue(os.path.exists(self.path("/etc/systemd/system/unbound.service")))
+        # the content stays, and the rollback says what to rebuild if needed
+        self.assertEqual(self.read("/srv/hub/search/addresses.db"), "index rebuilt by 2.2.0, a bit longer")
+        self.assertIn("sudo hub-update.sh addresses", result.stdout)
+        # used up: nothing is kept any more, and going back again says so
+        self.assertFalse(os.path.exists(self.path("/var/lib/raspberry-hub/previous")))
+        again = self.rollback("restore", "--yes")
+        self.assertEqual(again.returncode, 1)
+        self.assertIn("no previous version", again.stderr)
+
+    def test_asks_first_at_a_terminal_only(self):
+        self.install("2.1.0", "old", "A=1\n")
+        self.rollback("snapshot", "2.2.0")
+        self.install("2.2.0", "new", "A=2\n")
+        result = self.rollback("restore")                    # no terminal and no --yes: nothing changes
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--yes", result.stderr)
+        self.assertEqual(self.read("/etc/hub.conf"), "A=2\n")
+
+
 class UpgradeFrom1x(unittest.TestCase):
     """hub-migrate.py on a fake root with the files of a raspberry-hub 1.x installation."""
 
@@ -760,7 +854,9 @@ class UpgradeButton(unittest.TestCase):
         with open(cls.version, "w", encoding="utf-8") as f:
             f.write("2.0.1\n")
         cls.port = free_port()
-        cls.server = start_hub_control(cls.port, cls.hub, cls.folder, credentials, HUB_VERSION_FILE=cls.version)
+        cls.previous = os.path.join(cls.folder, "previous.json")
+        cls.server = start_hub_control(cls.port, cls.hub, cls.folder, credentials, HUB_VERSION_FILE=cls.version,
+                                       HUB_PREVIOUS=cls.previous)
 
     @classmethod
     def tearDownClass(cls):
@@ -769,6 +865,33 @@ class UpgradeButton(unittest.TestCase):
         shutil.rmtree(cls.folder, ignore_errors=True)
 
     request = HubControl.request
+
+    def test_going_back_to_the_previous_version(self):
+        self.state("upgrade.json")
+        hub = {"X-Hub": "1"}
+        _, _, cookie = self.request("POST", "/control/login", {"username": "admin", "password": "test1234"}, hub)
+        logged_in = {**hub, "Cookie": cookie.split(";", 1)[0]}
+        status, data, _ = self.request("GET", "/control/upgrade")
+        self.assertIsNone(data["previous"])
+        status, data, _ = self.request("POST", "/control/rollback", {"version": "2.0.0"}, logged_in)
+        self.assertEqual((status, data["error"]), (409, "no_previous"))
+        with open(self.previous, "w", encoding="utf-8") as f:
+            json.dump({"version": "2.0.0", "replaced_by": "2.0.1", "time": "2026-11-20T15:00:00+0100"}, f)
+        status, data, _ = self.request("GET", "/control/upgrade")
+        self.assertEqual(data["previous"], {"version": "2.0.0", "time": "2026-11-20T15:00:00+0100"})
+        status, data, _ = self.request("POST", "/control/rollback", {"version": "2.0.0"}, hub)
+        self.assertEqual((status, data["error"]), (401, "login_required"))
+        for wanted in ("1.9.9", "2.0.0; reboot", None):
+            status, data, _ = self.request("POST", "/control/rollback", {"version": wanted}, logged_in)
+            self.assertEqual((status, data["error"]), (409, "no_previous"), wanted)
+        self.state("upgrade.json", {"version": "2.1.0", "step": "install"})
+        status, data, _ = self.request("POST", "/control/rollback", {"version": "2.0.0"}, logged_in)
+        self.assertEqual((status, data["error"]), (409, "upgrade_running"))
+        self.state("upgrade.json")
+        # no systemd here: the service cannot start, and says so
+        status, data, _ = self.request("POST", "/control/rollback", {"version": "2.0.0"}, logged_in)
+        self.assertEqual((status, data["error"]), (502, "rollback_not_started"))
+        os.remove(self.previous)
 
     def state(self, name, data=None):
         path = os.path.join(self.hub, "state", name)

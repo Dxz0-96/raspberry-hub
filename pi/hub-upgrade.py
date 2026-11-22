@@ -265,7 +265,8 @@ def upgrade(args):
                 with tarfile.open(path, "r:gz") as archive:
                     archive.extractall(work, filter="data")
                 notes = upgrade_notes(os.path.join(work, f"raspberry-hub-{target}"), version(target)[0])
-                print(f"\n{target} is a new major version: read what changes before going on.\n")
+                print(f"\n{target} is a new major version: read what changes before going on. The installed version is"
+                      " kept: sudo hub-install.sh rollback goes back to it.\n")
                 print(notes or f"See {found['url']} and docs/upgrading.md.")
                 try:
                     if not sys.stdin.isatty():

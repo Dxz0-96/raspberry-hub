@@ -13,6 +13,8 @@ Login required:
     POST   /control/password            {current, new}
     POST   /control/services/<id>/switch   {on: true|false}
     POST   /control/upgrade             {version}   starts the upgrade to the latest release (hub-upgrade@.service)
+    POST   /control/rollback            {version}   goes back to the version kept before the last upgrade
+                                                    (hub-rollback.service)
     POST   /control/services            {name, description, url, icon?}   adds a link
     POST   /control/services/<id>       same as above, edits a link added from the hub
     DELETE /control/services/<id>       removes a link added from the hub
@@ -75,6 +77,8 @@ VERSION_FILE = os.environ.get("HUB_VERSION_FILE", os.path.join(os.path.dirname(o
 # written as root by hub-update.sh check-version (daily) and by hub-upgrade.py: read only here
 LATEST_FILE = os.path.join(HUB_DIR, "state", "latest.json")
 UPGRADE_FILE = os.path.join(HUB_DIR, "state", "upgrade.json")
+# the version kept before the last upgrade (hub-rollback.py): its manifest is readable by everyone, its files not
+PREVIOUS_FILE = os.environ.get("HUB_PREVIOUS", "/var/lib/raspberry-hub/previous/manifest.json")
 UPGRADE_FREE_BYTES = 200 * 1024 * 1024
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
@@ -518,133 +522,30 @@ def upgrade_status():
     progress = read_json(UPGRADE_FILE)
     return {"installed": installed, "latest": latest,
             "newer": bool(latest and semver(installed) and semver(latest["version"]) > semver(installed)),
-            "progress": progress if isinstance(progress, dict) else None}
+            "progress": progress if isinstance(progress, dict) else None, "previous": previous_version()}
 
 
-def upgrade_running(progress):
-    """An upgrade that has not ended and wrote in the last 2 hours (a reboot in the middle ends it)."""
-    if not progress or progress.get("step") in (None, "done", "failed"):
-        return False
-    try:
-        return time.time() - os.path.getmtime(UPGRADE_FILE) < 7200
-    except OSError:
-        return False
-
-
-def start_upgrade(version):
-    """(HTTP status, code, English message). Only the latest release found by the daily check is accepted:
-    never a string or an address from the request, which is only compared with it."""
-    info = upgrade_status()
-    latest = info["latest"]
-    if not latest or str(version) != latest["version"]:
-        return 400, "not_latest", "Only the latest release found by the daily check can be installed."
-    if not semver(info["installed"]):
-        return 409, "version_unknown", "The installed version is unknown: update with sudo hub-install.sh upgrade."
-    if not info["newer"]:
-        return 409, "up_to_date", "This version is already installed."
-    if upgrade_running(info["progress"]):
-        return 409, "upgrade_running", "An update is already running."
-    try:
-        running = [f for f in os.listdir(os.path.join(HUB_DIR, "state")) if f.endswith(".running")]
-    except OSError:
-        running = []
-    if running:
-        return 409, "content_update_running", "Wikipedia, the maps or the addresses are being updated: try again later."
-    if shutil.disk_usage("/").free < UPGRADE_FREE_BYTES:
-        return 507, "no_space", "Not enough free space on the Raspberry Pi for the update."
-    ok, _ = run(["systemctl", "--no-ask-password", "--no-block", "start", f"hub-upgrade@{latest['version']}.service"],
-                timeout=30)
-    if not ok:
-        return 502, "upgrade_not_started", "The Raspberry Pi could not start the update."
-    return 202, "", ""
-
-
-# =========================================================================== new versions
-def read_json(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
+def previous_version():
+    """The version kept to go back to: {"version", "time"}, or None."""
+    data = read_json(PREVIOUS_FILE)
+    if not isinstance(data, dict) or not semver(data.get("version")):
         return None
+    return {"version": data["version"], "time": str(data.get("time", ""))}
 
 
-def semver(text):
-    match = SEMVER.match(str(text or ""))
-    return tuple(int(x) for x in match.groups()) if match else None
-
-
-def upgrade_status():
-    """What the hub needs for the notice and the "Update" button."""
-    installed = read_text(VERSION_FILE).strip() or None
-    latest = read_json(LATEST_FILE)
-    latest = latest if isinstance(latest, dict) and semver(latest.get("version")) else None
-    progress = read_json(UPGRADE_FILE)
-    return {"installed": installed, "latest": latest,
-            "newer": bool(latest and semver(installed) and semver(latest["version"]) > semver(installed)),
-            "progress": progress if isinstance(progress, dict) else None}
-
-
-def upgrade_running(progress):
-    """An upgrade that has not ended and wrote in the last 2 hours (a reboot in the middle ends it)."""
-    if not progress or progress.get("step") in (None, "done", "failed"):
-        return False
-    try:
-        return time.time() - os.path.getmtime(UPGRADE_FILE) < 7200
-    except OSError:
-        return False
-
-
-def start_upgrade(version):
-    """(HTTP status, code, English message). Only the latest release found by the daily check is accepted:
-    never a string or an address from the request, which is only compared with it."""
-    info = upgrade_status()
-    latest = info["latest"]
-    if not latest or str(version) != latest["version"]:
-        return 400, "not_latest", "Only the latest release found by the daily check can be installed."
-    if not semver(info["installed"]):
-        return 409, "version_unknown", "The installed version is unknown: update with sudo hub-install.sh upgrade."
-    if not info["newer"]:
+def start_rollback(version):
+    """(HTTP status, code, English message). Only the version kept, named exactly; never during an upgrade."""
+    previous = previous_version()
+    if not previous or str(version) != previous["version"]:
+        return 409, "no_previous", "There is no previous version to go back to."
+    if previous["version"] == (read_text(VERSION_FILE).strip() or None):
         return 409, "up_to_date", "This version is already installed."
-    if upgrade_running(info["progress"]):
+    if upgrade_running(read_json(UPGRADE_FILE)):
         return 409, "upgrade_running", "An update is already running."
-    try:
-        running = [f for f in os.listdir(os.path.join(HUB_DIR, "state")) if f.endswith(".running")]
-    except OSError:
-        running = []
-    if running:
-        return 409, "content_update_running", "Wikipedia, the maps or the addresses are being updated: try again later."
-    if shutil.disk_usage("/").free < UPGRADE_FREE_BYTES:
-        return 507, "no_space", "Not enough free space on the Raspberry Pi for the update."
-    ok, _ = run(["systemctl", "--no-ask-password", "--no-block", "start", f"hub-upgrade@{latest['version']}.service"],
-                timeout=30)
+    ok, _ = run(["systemctl", "--no-ask-password", "--no-block", "start", "hub-rollback.service"], timeout=30)
     if not ok:
-        return 502, "upgrade_not_started", "The Raspberry Pi could not start the update."
+        return 502, "rollback_not_started", "The Raspberry Pi could not start going back."
     return 202, "", ""
-
-
-# =========================================================================== new versions
-def read_json(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
-
-
-def semver(text):
-    match = SEMVER.match(str(text or ""))
-    return tuple(int(x) for x in match.groups()) if match else None
-
-
-def upgrade_status():
-    """What the hub needs for the notice and the "Update" button."""
-    installed = read_text(VERSION_FILE).strip() or None
-    latest = read_json(LATEST_FILE)
-    latest = latest if isinstance(latest, dict) and semver(latest.get("version")) else None
-    progress = read_json(UPGRADE_FILE)
-    return {"installed": installed, "latest": latest,
-            "newer": bool(latest and semver(installed) and semver(latest["version"]) > semver(installed)),
-            "progress": progress if isinstance(progress, dict) else None}
 
 
 def upgrade_running(progress):
@@ -1326,6 +1227,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if parts == ["upgrade"]:
             status, code, message = start_upgrade(data.get("version"))
+            if code:
+                return self.fail(status, code, message)
+            return self.reply(202, {"ok": True})
+
+        if parts == ["rollback"]:
+            status, code, message = start_rollback(data.get("version"))
             if code:
                 return self.fail(status, code, message)
             return self.reply(202, {"ok": True})

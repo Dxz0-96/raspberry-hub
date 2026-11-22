@@ -75,6 +75,9 @@ tar -tzf /tmp/hub-backup.tar.gz | grep -qx 'etc/hub.conf' || fail "the backup ha
 tar -tzf /tmp/hub-backup.tar.gz | grep -q '^var/lib/hub-control/' || fail "the backup has no switch states"
 [ "$(stat -c '%U %a' /tmp/hub-backup.tar.gz)" = "pi 600" ] || fail "the backup is not private to pi"
 rm -f /tmp/hub-backup.tar.gz
+# the same version installed twice replaced nothing: there is no previous version to go back to, and it says so
+if hub-install.sh rollback --yes 2> /tmp/rollback.err; then fail "rollback went ahead without a kept version"; fi
+grep -q "no previous version" /tmp/rollback.err || fail "rollback did not say why: $(cat /tmp/rollback.err)"
 [ -f /srv/hub/site/index.html ] && [ "$(stat -c %U /srv/hub/site)" = pi ] || fail "the website is not installed for pi"
 [ -s /srv/hub/status.json ] || fail "no /srv/hub/status.json"
 grep -q '^CHECK_FOR_UPDATES=' /etc/hub.conf && grep -q '^WATCHDOG=no' /etc/hub.conf || fail "/etc/hub.conf lacks the new settings"

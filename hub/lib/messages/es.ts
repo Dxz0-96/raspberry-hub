@@ -165,6 +165,8 @@ export const es: Messages = {
       "Wikipedia, los mapas o las direcciones se están actualizando: inténtalo de nuevo cuando terminen.",
     no_space: "No hay espacio libre suficiente en la Raspberry Pi para la actualización.",
     upgrade_not_started: "La Raspberry Pi no ha podido iniciar la actualización.",
+    no_previous: "No hay ninguna versión anterior a la que volver.",
+    rollback_not_started: "La Raspberry Pi no ha podido empezar a volver a la versión anterior.",
   },
   alerts: {
     temperature: (celsius) => `Temperatura alta: ${celsius} °C. Comprueba que la Raspberry Pi tenga aire alrededor.`,
@@ -270,6 +272,11 @@ export const es: Messages = {
     doneWithWarnings: (version) =>
       `La versión ${version} está instalada, pero sudo hub-check.sh indica un problema: compruébalo en la Raspberry Pi.`,
     reload: "Recargar ahora",
+    goBack: (version) => `Volver a la ${version}`,
+    goBackExplain: (version) =>
+      `La versión ${version} se ha conservado tal como estaba antes de esta actualización. Volver a ella tarda un par de minutos y recupera sus ajustes de entonces; el contenido descargado se queda.`,
+    goingBack: (version) =>
+      `Volviendo a la ${version}: el hub responde de nuevo en un par de minutos y la página se recarga sola.`,
     failed: "La actualización no ha terminado.",
     details: "Los detalles están en la Raspberry Pi, en /srv/hub/state/upgrade.log; sudo hub-check.sh dice qué funciona.",
     errors: {

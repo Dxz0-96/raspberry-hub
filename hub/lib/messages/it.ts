@@ -160,6 +160,8 @@ export const it: Messages = {
     content_update_running: "Wikipedia, le mappe o gli indirizzi si stanno aggiornando: riprova quando hanno finito.",
     no_space: "Sul Raspberry non c'è abbastanza spazio libero per l'aggiornamento.",
     upgrade_not_started: "Il Raspberry non è riuscito ad avviare l'aggiornamento.",
+    no_previous: "Non c'è una versione precedente a cui tornare.",
+    rollback_not_started: "Il Raspberry non è riuscito ad avviare il ritorno alla versione precedente.",
   },
   alerts: {
     temperature: (celsius) => `Temperatura alta: ${celsius} °C. Controlla che il Raspberry abbia aria attorno.`,
@@ -265,6 +267,11 @@ export const it: Messages = {
     doneWithWarnings: (version) =>
       `La versione ${version} è installata, ma sudo hub-check.sh segnala un problema: controlla sul Raspberry.`,
     reload: "Ricarica ora",
+    goBack: (version) => `Torna alla ${version}`,
+    goBackExplain: (version) =>
+      `La versione ${version} è stata conservata com'era prima di questo aggiornamento. Tornarci richiede un paio di minuti e rimette le sue impostazioni di allora; i contenuti scaricati restano.`,
+    goingBack: (version) =>
+      `Torno alla ${version}: l'hub risponde di nuovo tra un paio di minuti e la pagina si ricarica da sola.`,
     failed: "L'aggiornamento non è andato a termine.",
     details: "I dettagli sono sul Raspberry, in /srv/hub/state/upgrade.log; sudo hub-check.sh dice cosa funziona.",
     errors: {
