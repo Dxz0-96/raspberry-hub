@@ -71,10 +71,12 @@ for unit in hub-control.service kiwix-hub.service hub-search.service hub-check.s
 done
 # no pi-setup package here: the backup of the hub settings is the hub's own
 ADMIN_USER=pi hub-install.sh backup /tmp/hub-backup.tar.gz > /dev/null
-tar -tzf /tmp/hub-backup.tar.gz | grep -qx 'etc/hub.conf' || fail "the backup has no etc/hub.conf"
-tar -tzf /tmp/hub-backup.tar.gz | grep -q '^var/lib/hub-control/' || fail "the backup has no switch states"
+# the listing in a file: "tar | grep -q" fails under pipefail when grep stops early and tar gets SIGPIPE
+tar -tzf /tmp/hub-backup.tar.gz > /tmp/hub-backup.list
+grep -qx 'etc/hub.conf' /tmp/hub-backup.list || fail "the backup has no etc/hub.conf"
+grep -q '^var/lib/hub-control/' /tmp/hub-backup.list || fail "the backup has no switch states"
 [ "$(stat -c '%U %a' /tmp/hub-backup.tar.gz)" = "pi 600" ] || fail "the backup is not private to pi"
-rm -f /tmp/hub-backup.tar.gz
+rm -f /tmp/hub-backup.tar.gz /tmp/hub-backup.list
 [ -f /srv/hub/site/index.html ] && [ "$(stat -c %U /srv/hub/site)" = pi ] || fail "the website is not installed for pi"
 [ -s /srv/hub/status.json ] || fail "no /srv/hub/status.json"
 grep -q '^CHECK_FOR_UPDATES=' /etc/hub.conf && grep -q '^WATCHDOG=no' /etc/hub.conf || fail "/etc/hub.conf lacks the new settings"
