@@ -1,6 +1,6 @@
 {
   "name": "raspberry-hub",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "description": "Home hub for the Raspberry Pi: services, switches, hardware monitor, offline Wikipedia and maps",
   "repository": {

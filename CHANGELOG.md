@@ -6,6 +6,14 @@ All notable changes to this project. From 2.0.0 on, entries are written by
 [Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
 [docs/upgrading.md](docs/upgrading.md).
 
+## [2.2.1](https://github.com/Dxz0-96/raspberry-hub/compare/v2.2.0...v2.2.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **hub:** the demo takes no space for the Wikipedia it does not have ([d51d055](https://github.com/Dxz0-96/raspberry-hub/commit/d51d05505bec5c841ca9069c2566b96763074724))
+* **i18n:** Pizza as the example of the Wikipedia search ([d51d055](https://github.com/Dxz0-96/raspberry-hub/commit/d51d05505bec5c841ca9069c2566b96763074724))
+
 ## [2.2.0](https://github.com/Dxz0-96/raspberry-hub/compare/v2.1.0...v2.2.0) (2026-11-22)
 
 
