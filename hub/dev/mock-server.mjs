@@ -46,6 +46,8 @@ const NOTES = `## [${LATEST}](https://github.com/Dxz0-96/raspberry-hub/compare/v
 let piVersion = PI_VERSION;
 /** /srv/hub/state/upgrade.json, written by hub-upgrade.py on the Raspberry Pi */
 let upgrade = null;
+/** /var/lib/raspberry-hub/previous: the version kept by the last upgrade, to go back to it (hub-rollback.py) */
+let previous = null;
 function semver(v) {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v ?? "");
   return m ? m.slice(1).map(Number) : null;
@@ -63,6 +65,7 @@ const latest = () => ({ version: LATEST, url: `https://github.com/Dxz0-96/raspbe
 function pretendUpgrade(version) {
   const stamp = () => new Date().toISOString();
   upgrade = { version, from: piVersion, step: "start", result: null, error: null, warning: null, started: stamp(), updated: stamp() };
+  previous = { version: piVersion, time: stamp() };
   ["download", "verify", "install", "check", "done"].forEach((step, i) => {
     setTimeout(() => {
       upgrade = { ...upgrade, step, result: step === "done" ? "ok" : null, updated: stamp() };
@@ -181,7 +184,7 @@ createServer(async (req, res) => {
   if (p === "/status.json") return json(res, 200, contentStatus(latest()));
   if (p === "/control/status") return json(res, 200, { time: Math.round(Date.now() / 1000), authenticated: Boolean(session(req)), user: session(req) ? "admin" : null, configured: process.env.MOCK_NO_PASSWORD !== "1", version: piVersion, services: states(), dns: dns() });
   if (p === "/control/upgrade" && req.method === "GET") {
-    return json(res, 200, { installed: piVersion, latest: { ...latest(), notes: NOTES }, newer: newer(LATEST, piVersion), progress: upgrade });
+    return json(res, 200, { installed: piVersion, latest: { ...latest(), notes: NOTES }, newer: newer(LATEST, piVersion), progress: upgrade, previous });
   }
   if (p === "/control/system") return json(res, 200, system());
   if (p === "/control/system/history") {
@@ -233,6 +236,15 @@ createServer(async (req, res) => {
       if (String(data.new ?? "").length < 8) return json(res, 400, { error: "password_too_short", message: "The new password must be at least 8 characters long." });
       password = data.new;
       return json(res, 200, { ok: true });
+    }
+    if (p === "/control/rollback") {
+      // the same checks as start_rollback() in hub-control.py, in the same order
+      if (!previous || String(data.version) !== previous.version) return json(res, 409, { error: "no_previous", message: "There is no previous version to go back to." });
+      if (previous.version === piVersion) return json(res, 409, { error: "up_to_date", message: "This version is already installed." });
+      if (upgrade && !["done", "failed"].includes(upgrade.step)) return json(res, 409, { error: "upgrade_running", message: "An update is already running." });
+      const to = previous.version;
+      setTimeout(() => { piVersion = to; previous = null; }, 3000);
+      return json(res, 202, { ok: true });
     }
     if (p === "/control/upgrade") {
       // the same checks as start_upgrade() in hub-control.py, in the same order

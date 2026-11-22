@@ -68,7 +68,7 @@ export async function demoApi<T>(path: string, options: { method?: string; body?
       if (new URLSearchParams(query).get("period") === "month") return answer({ month: { step: 3600, points: month } });
       return answer({ recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day }, power: { events: history.power } });
     }
-    if (route === "/control/upgrade") return answer({ installed: VERSION, latest: null, newer: false, progress: null });
+    if (route === "/control/upgrade") return answer({ installed: VERSION, latest: null, newer: false, progress: null, previous: null });
     fail(404, "not_found", "Page not found.");
   }
 
@@ -92,6 +92,7 @@ export async function demoApi<T>(path: string, options: { method?: string; body?
     return answer({ ok: true });
   }
   if (route === "/control/upgrade") fail(409, "up_to_date", "This version is already installed.");
+  if (route === "/control/rollback") fail(409, "no_previous", "There is no previous version to go back to.");
   const toggle = /^\/control\/services\/([a-z0-9-]+)\/switch$/.exec(route);
   if (toggle) {
     if (toggle[1] === "pihole") blocking = Boolean(body.on);

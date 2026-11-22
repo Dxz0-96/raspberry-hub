@@ -24,10 +24,16 @@ async function releaseFound(page: Page, version: string) {
 
 /** GET and POST /control/upgrade answered here: the steps go on when the test says so. */
 async function upgradeOnThePi(page: Page, installed: string, version: string) {
-  const pi = { installed, step: null as string | null, error: null as string | null };
+  const pi = { installed, step: null as string | null, error: null as string | null, warning: null as string | null,
+    previous: null as { version: string; time: string } | null, rolledBack: null as string | null };
   const progress = () =>
     pi.step && { version, from: installed, step: pi.step, result: pi.step === "done" ? "ok" : null, error: pi.error,
-      warning: null, started: "2026-11-20T15:00:00+0100", updated: null };
+      warning: pi.warning, started: "2026-11-20T15:00:00+0100", updated: null };
+  // going back: hub-control starts hub-rollback.service, and the Raspberry Pi then answers with the old version
+  await page.route("**/control/rollback", async (route) => {
+    pi.rolledBack = route.request().postDataJSON().version;
+    await route.fulfill({ status: 202, json: { ok: true } });
+  });
   await page.route("**/control/upgrade", async (route) => {
     if (route.request().method() === "POST") {
       expect(route.request().postDataJSON()).toEqual({ version });
@@ -35,7 +41,7 @@ async function upgradeOnThePi(page: Page, installed: string, version: string) {
       return route.fulfill({ status: 202, json: { ok: true } });
     }
     await route.fulfill({
-      json: { installed: pi.installed, newer: true, progress: progress(),
+      json: { installed: pi.installed, newer: true, progress: progress(), previous: pi.previous,
         latest: { version, url: "https://example.invalid", notes: "### Features\n\n* **hub:** a new view ([#34](https://x/34)) ([abc1234](https://x/abc))" } },
     });
   });
@@ -116,6 +122,36 @@ test.describe("New version", () => {
     await page.clock.runFor(5000);
     await reloaded;
     await expect(page.getByRole("contentinfo").getByText(`Version ${minor} is available.`)).toHaveCount(0);
+  });
+
+  test("when the check after the update finds a problem, the hub offers to go back", async ({ page }) => {
+    const { installed, minor } = await versions(page);
+    await releaseFound(page, minor);
+    const pi = await upgradeOnThePi(page, installed, minor);
+    await page.clock.install();
+    await page.goto("/");
+    await page.getByRole("contentinfo").getByRole("button", { name: "Update" }).click();
+    await logIn(page);
+    const dialog = page.getByRole("dialog", { name: `Update to ${minor}` });
+    await dialog.getByRole("button", { name: "Update" }).click();
+    // installed and answering, but hub-check.sh found a problem; the version of before was kept
+    pi.step = "done";
+    pi.installed = minor;
+    pi.warning = "check_failed";
+    pi.previous = { version: installed, time: "2026-11-20T15:00:00+0100" };
+    await page.clock.runFor(5000);
+    await expect(dialog.getByText(`Version ${minor} is installed, but sudo hub-check.sh reports a problem`)).toBeVisible();
+    await expect(dialog.getByText(`Version ${installed} was kept as it was before this update.`)).toBeVisible();
+    // no reload by itself: the choice is the person's
+    await page.clock.runFor(10000);
+    await dialog.getByRole("button", { name: `Go back to ${installed}` }).click();
+    await expect(dialog.getByRole("status")).toContainText(`Going back to ${installed}`);
+    expect(pi.rolledBack).toBe(installed);
+    // the Raspberry Pi answers with the old version again: its website is loaded
+    pi.installed = installed;
+    const reloaded = page.waitForEvent("load");
+    await page.clock.runFor(5000);
+    await reloaded;
   });
 
   test("a failed update says why", async ({ page }) => {

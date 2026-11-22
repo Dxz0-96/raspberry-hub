@@ -21,6 +21,8 @@
 #                                      Wikipedia edition (see hub-configure.py; a new installation asks them once,
 #                                      at a terminal; MAP_COUNTRY, WIKI_LANGUAGE and WIKI_VARIANT in the environment
 #                                      answer in advance)
+#   sudo hub-install.sh rollback [--yes]
+#                                      goes back to the version kept before the last upgrade (hub-rollback.py)
 #   sudo hub-install.sh upgrade [X.Y.Z] [--yes]
 #                                      downloads a release package from GitHub, checks it and installs it
 #                                      (the latest release unless a version is given; see hub-upgrade.py)
@@ -88,6 +90,10 @@ do_prepare() {
     echo "   installed to /usr/local/bin/pmtiles"
   fi
 
+  echo "== The version being replaced"
+  # kept before anything of it changes, to go back to it: sudo hub-install.sh rollback
+  python3 "$HERE/hub-rollback.py" snapshot "$HUB_VERSION"
+
   echo "== Upgrade from earlier versions"
   systemctl stop hub-control.service hub-search.service 2>/dev/null || true
   HUB_PISETUP="$PISETUP" python3 "$HERE/hub-migrate.py"
@@ -113,7 +119,7 @@ do_prepare() {
   [ -e /etc/caddy/services/000-empty.caddy ] || echo "# Services hooked in with hub-service end up in this folder." > /etc/caddy/services/000-empty.caddy
 
   echo "== Scripts"
-  for f in hub-search.py hub-control.py build-search-index.py hub-upgrade.py hub-configure.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
+  for f in hub-search.py hub-control.py build-search-index.py hub-upgrade.py hub-configure.py hub-rollback.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
   install -o root -g root -m 644 "$HERE/countries.json" "$LIB/countries.json"
   install -o root -g root -m 755 "$HERE/kiwix-start" "$LIB/kiwix-start"
   # the hub compares it with the version of the website and suggests an update when they differ
@@ -143,7 +149,7 @@ do_prepare() {
   echo "== Services"
   for u in kiwix-hub.service hub-search.service hub-control.service hub-cert-sync.path hub-cert-sync.service \
            hub-version-check.service hub-version-check.timer hub-upgrade@.service hub-check.service \
-           hub-update.service hub-update.timer hub-cert.service hub-cert.timer; do
+           hub-update.service hub-update.timer hub-cert.service hub-cert.timer hub-rollback.service; do
     install -o root -g root -m 644 "$HERE/units/$u" "/etc/systemd/system/$u"
   done
   systemctl daemon-reload
@@ -341,6 +347,10 @@ case "$WHAT" in
     upgrader="$LIB/hub-upgrade.py"; [ -f "$upgrader" ] || upgrader="$HERE/hub-upgrade.py"
     ADMIN_USER="$ADMIN" exec python3 "$upgrader" "${@:2}" ;;
   backup) do_backup "${2:-}" ;;
+  rollback)
+    # the installed copy: the one of the package may be of another version. exec: this script is replaced too
+    roller="$LIB/hub-rollback.py"; [ -f "$roller" ] || roller="$HERE/hub-rollback.py"
+    exec python3 "$roller" restore "${@:2}" ;;
   configure)
     ADMIN_USER="$ADMIN" python3 "$LIB/hub-configure.py" "${@:2}" ;;
   prepare) do_prepare ;;
@@ -350,6 +360,6 @@ case "$WHAT" in
   monthly) do_monthly ;;
   disable) do_disable ;;
   all)     do_prepare; do_site; do_enable; do_monthly ;;
-  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable|watchdog|configure [--country XX] [--wiki-language xx]|backup [FILE]|upgrade [X.Y.Z] [--yes]]" >&2; exit 1 ;;
+  *) echo "Usage: sudo bash hub-install.sh [prepare|site|enable|monthly|disable|watchdog|configure [--country XX] [--wiki-language xx]|backup [FILE]|rollback|upgrade [X.Y.Z] [--yes]]" >&2; exit 1 ;;
 esac
 echo "== Done."

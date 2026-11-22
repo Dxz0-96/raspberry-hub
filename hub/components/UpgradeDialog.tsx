@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, CircleAlert, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Check, CircleAlert, LoaderCircle, TriangleAlert, Undo2 } from "lucide-react";
 import { errorMessage, readPiVersion, readUpgrade, useHub } from "@/lib/hub";
 import { useI18n } from "@/lib/i18n";
 import { isNewMajor } from "@/lib/version";
@@ -13,7 +13,7 @@ const STEPS = ["download", "verify", "install", "check"] as const;
 /** The existing status poll runs every 5 seconds: the upgrade is followed at the same pace. */
 const POLL = 5000;
 
-type Phase = "confirm" | "progress" | "done" | "failed";
+type Phase = "confirm" | "progress" | "done" | "failed" | "rollback";
 
 /** Release notes as release-please writes them, in plain text: headings and bullets, without links. */
 function ReleaseNotes({ text }: { text: string }) {
@@ -48,7 +48,8 @@ function ReleaseNotes({ text }: { text: string }) {
 /**
  * "Update to X.Y.Z": the release notes, a confirmation, then the progress of the upgrade on the Raspberry Pi
  * (hub-upgrade@.service). Caddy and hub-control restart along the way, so failed requests only mean "wait".
- * When the Raspberry Pi answers with the new version, the page reloads to get the new website.
+ * When the Raspberry Pi answers with the new version, the page reloads to get the new website. If the upgrade
+ * failed, or its check found a problem, it offers to go back to the version kept before it (hub-rollback.py).
  */
 export function UpgradeDialog({
   open,
@@ -62,7 +63,9 @@ export function UpgradeDialog({
   installed: string;
 }) {
   const { t } = useI18n();
-  const { startUpgrade } = useHub();
+  const { startUpgrade, startRollback } = useHub();
+  /** the version the Raspberry Pi is going back to, once asked */
+  const [backTo, setBackTo] = useState<string | null>(null);
   const [status, setStatus] = useState<UpgradeStatus | null>(null);
   const [phase, setPhase] = useState<Phase>("confirm");
   const [progress, setProgress] = useState<UpgradeProgress | null>(null);
@@ -103,6 +106,7 @@ export function UpgradeDialog({
         const data = await readUpgrade();
         if (stopped) return;
         setWaiting(false);
+        setStatus(data); // the version kept to go back to appears during the installation
         const current = data.progress;
         if (!current || current.version !== version || current.started === previous.current) return;
         setProgress(current);
@@ -119,9 +123,10 @@ export function UpgradeDialog({
     };
   }, [open, phase, version]);
 
-  // installed: as soon as the Raspberry Pi answers with the new version, the new website is loaded
+  // installed: as soon as the Raspberry Pi answers with the new version, the new website is loaded; not when the
+  // check found a problem, so that going back stays possible
   useEffect(() => {
-    if (phase !== "done") return;
+    if (phase !== "done" || progress?.warning) return;
     const timer = setInterval(async () => {
       try {
         if ((await readPiVersion()) === version) window.location.reload();
@@ -130,7 +135,35 @@ export function UpgradeDialog({
       }
     }, POLL);
     return () => clearInterval(timer);
-  }, [phase, version]);
+  }, [phase, version, progress?.warning]);
+
+  // going back: once the Raspberry Pi answers with that version, its website is loaded
+  useEffect(() => {
+    if (phase !== "rollback" || !backTo) return;
+    const timer = setInterval(async () => {
+      try {
+        if ((await readPiVersion()) === backTo) window.location.reload();
+      } catch {
+        // restarting
+      }
+    }, POLL);
+    return () => clearInterval(timer);
+  }, [phase, backTo]);
+
+  async function goBack(to: string) {
+    setSending(true);
+    setProblem(null);
+    try {
+      await startRollback(to, () => {
+        setBackTo(to);
+        setPhase("rollback");
+      });
+    } catch (error) {
+      setProblem(error);
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function confirm() {
     setSending(true);
@@ -153,6 +186,10 @@ export function UpgradeDialog({
   const notes = status?.latest?.version === version ? status.latest.notes : undefined;
   const reached = STEPS.indexOf(lastStep as (typeof STEPS)[number]);
   const failure = progress?.error ? (t.upgrade.errors[progress.error] ?? t.upgrade.failed) : t.upgrade.failed;
+  // the version of before, kept by this upgrade: offered when it failed or its check found a problem
+  const kept = status?.previous ?? null;
+  const goBackTo = kept && progress && kept.version === progress.from &&
+    (phase === "failed" || (phase === "done" && progress.warning)) ? kept.version : null;
 
   return (
     <Dialog open={open} onClose={onClose} title={t.upgrade.title(version)}>
@@ -199,6 +236,17 @@ export function UpgradeDialog({
             </button>
           </div>
         </>
+      ) : phase === "rollback" && backTo ? (
+        <>
+          <p className="dialog-text" role="status">
+            <LoaderCircle size={18} aria-hidden="true" className="spin" /> {t.upgrade.goingBack(backTo)}
+          </p>
+          <div className="dialog-actions">
+            <button type="button" className="button" onClick={onClose}>
+              {t.common.close}
+            </button>
+          </div>
+        </>
       ) : (
         <>
           <ol className="upgrade-steps" aria-label={t.upgrade.progressLabel}>
@@ -241,7 +289,20 @@ export function UpgradeDialog({
               </p>
             )}
           </div>
+          {goBackTo && <p className="dialog-text">{t.upgrade.goBackExplain(goBackTo)}</p>}
+          {problem !== null && (
+            <p className="error-box" role="alert">
+              <CircleAlert size={18} aria-hidden="true" />
+              <span>{errorMessage(t, problem, t.upgrade.failed)}</span>
+            </p>
+          )}
           <div className="dialog-actions">
+            {goBackTo && (
+              <button type="button" className="button" disabled={sending} onClick={() => goBack(goBackTo)}>
+                <Undo2 size={17} aria-hidden="true" />
+                {t.upgrade.goBack(goBackTo)}
+              </button>
+            )}
             {phase === "done" ? (
               <button type="button" className="button primary" onClick={() => window.location.reload()}>
                 {t.upgrade.reload}

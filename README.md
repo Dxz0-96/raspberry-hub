@@ -175,15 +175,12 @@ Version numbers follow
 [Semantic Versioning](https://semver.org/): a new **major** version (2.0.0, 3.0.0) changes something on the
 Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md](docs/upgrading.md) first.
 
-1. **Before a major version, back up** the hub settings on the Raspberry Pi (a few MB; the downloaded
-   Wikipedia, maps and address index are not included and do not need to be):
-
-   ```bash
-   sudo hub-install.sh backup
-   ```
-
-   (Versions before 2.2 do not have it yet: see [docs/upgrading.md](docs/upgrading.md#1-back-up-before-a-major-version)
-   for the `tar` command that does the same.)
+1. **The version being replaced is kept by itself**: before changing anything, the installer saves it in
+   `/var/lib/raspberry-hub/previous` (its website, scripts, services and settings; a few MB, only the last one),
+   and `sudo hub-install.sh rollback` goes back to it (see [Going back](#going-back-to-the-previous-version)).
+   A copy of the settings to keep elsewhere is one command away: `sudo hub-install.sh backup`. (Installed versions
+   before 2.2 do neither yet: back up with the `tar` command of
+   [docs/upgrading.md](docs/upgrading.md#1-back-up-before-a-major-version).)
 
 2. **Update**, on the Raspberry Pi (once the installed version has this command, 2.0.1 does not yet):
 
@@ -220,9 +217,21 @@ Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md
    the same version.
 
 If the update stops with an error, its output and `sudo hub-check.sh` say which step failed; run it again once
-it is fixed. `sudo bash hub-install.sh disable` puts Pi-hole back on ports 80 and 443 meanwhile (see
-[Rolling back](#rolling-back)). There is no automatic downgrade to an older major version: that is what the
-backup is for.
+it is fixed, or go back to the version of before.
+
+### Going back to the previous version
+
+```bash
+sudo hub-install.sh rollback
+```
+
+It puts back the version that the last upgrade replaced, as it was then: its website, scripts, services,
+Caddyfile and settings (the files the newer version added go). The services restart and `hub-check.sh --wait`
+says whether everything came back. The downloaded Wikipedia, maps and address index stay as they are; if the
+newer version rebuilt or renamed some of them, the rollback says which `sudo hub-update.sh` part brings them in
+step. In the hub, when an update fails or its check finds a problem, the update window offers the same with
+"Go back to X.Y.Z". Only the last version is kept, and once used it is gone: `sudo hub-install.sh upgrade`
+installs the newer one again.
 
 Changes to the interface only can be published faster with `.\deploy.ps1` (without `-Update`), which copies
 just the website. If the website and the Raspberry Pi scripts end up on different versions, the footer of the
@@ -245,6 +254,7 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
 | Back up the hub settings | On the Pi: `sudo hub-install.sh backup` (`~/hub-backup-YYYY-MM-DD.tar.gz`, a few MB; restore with `sudo tar -xzf FILE -C /` then `sudo bash hub-install.sh`) |
 | Install a new release | "Update" in the footer of the hub, when it says a new version is available; or on the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
+| Go back to the version before the last upgrade | On the Pi: `sudo hub-install.sh rollback` |
 | Change the country of the map, or the language or variant of Wikipedia | On the Pi: `sudo hub-install.sh configure` (shows the sizes, then downloads in the background; the old content stays until the new one is verified) |
 | Use a map box of your own | `/etc/hub.conf` (`MAP_BBOX`), then `sudo hub-update.sh maps` |
 | Change the language | In the browser settings (preferred languages): the hub follows them |
@@ -412,7 +422,9 @@ month; `bash .github/scripts/check-sources.sh` runs the same checks by hand.
 | Address search does not answer | Is the index there? `ls -la /srv/hub/search`; rebuild it: `sudo hub-update.sh addresses` |
 | `raspberry` sometimes does not answer | The router has two addresses for that name: remove the old device called `raspberry` from the router |
 
-### Rolling back
+### Rolling back (switching the hub off)
+
+To go back to an earlier version of the hub instead, see [Going back to the previous version](#going-back-to-the-previous-version).
 
 ```
 cd ~/pi-setup/hub
