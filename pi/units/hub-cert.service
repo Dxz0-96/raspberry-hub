@@ -1,0 +1,6 @@
+[Unit]
+Description=raspberry-hub: renew the home certificate when it is about to expire (only the CA of the hub)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hub-cert renew

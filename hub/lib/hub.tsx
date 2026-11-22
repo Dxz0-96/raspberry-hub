@@ -160,6 +160,8 @@ interface Hub {
   removeService: (id: string) => Promise<void>;
   /** Starts the upgrade to the latest release (login required: if missing, the login opens first) */
   startUpgrade: (version: string, then: () => void) => Promise<void>;
+  /** Goes back to the version kept before the last upgrade (login required, as above) */
+  startRollback: (version: string, then: () => void) => Promise<void>;
 }
 
 /** The address search of the map: hub-search.py through Caddy (or the demo). */
@@ -352,6 +354,17 @@ export function HubProvider({ children }: { children: ReactNode }) {
     [protectedAction],
   );
 
+  const startRollback = useCallback(
+    async (version: string, then: () => void) => {
+      const started = await protectedAction(
+        () => api("/control/rollback", { method: "POST", body: { version } }),
+        () => void startRollback(version, then),
+      );
+      if (started) then();
+    },
+    [protectedAction],
+  );
+
   const changePassword = useCallback(async (current: string, next: string) => {
     await api("/control/password", { method: "POST", body: { current, new: next } });
     setToast({ text: (t) => t.password.changed, tone: "done" });
@@ -385,10 +398,12 @@ export function HubProvider({ children }: { children: ReactNode }) {
       saveService,
       removeService,
       startUpgrade,
+      startRollback,
     }),
     [
       services, status, content, contentChecked, system, history, month, busy, toast, loginOpen,
       openLogin, closeLogin, logIn, logOut, changePassword, setSwitch, saveService, removeService, startUpgrade,
+      startRollback,
     ],
   );
 

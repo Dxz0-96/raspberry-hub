@@ -47,11 +47,12 @@ DNS from those addresses.)
 
 ## Requirements
 
-- A Raspberry Pi with 64-bit Debian (or Raspberry Pi OS) and Pi-hole v6 already installed.
-- The Raspberry Pi's `pi-setup` package, **not included in this repository**: it creates the "home CA" and the
-  certificate (`pihole-cert.sh`), the monthly update (`monthly-update.sh`), the backups and the network
-  monitor (`/netmon/`). `hub-install.sh` expects to live in `~/pi-setup/hub` and skips the steps that need
-  it if it cannot find it.
+- A Raspberry Pi with 64-bit Debian (or Raspberry Pi OS) and Pi-hole v6 already installed. That is all: the hub
+  makes its own home certificate, updates its content every month and backs up its settings.
+- Optional: the author's `pi-setup` package, **not included in this repository**. When it is there, the hub uses
+  its "home CA" (`pihole-cert.sh`) instead of its own, adds its settings to its backup, waits for its monthly
+  system update, and reports a failed content update through its network monitor (`/netmon/`, Telegram).
+  `hub-install.sh` lives in `~/pi-setup/hub` either way.
 - On the PC: Node.js 20 or newer, and PowerShell for `deploy.ps1`.
 - Browsers: any recent one. The offline map needs WebGL 2 (every current browser has it); without it the
   map page says so instead of drawing.
@@ -174,14 +175,12 @@ Version numbers follow
 [Semantic Versioning](https://semver.org/): a new **major** version (2.0.0, 3.0.0) changes something on the
 Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md](docs/upgrading.md) first.
 
-1. **Before a major version, back up** the hub settings on the Raspberry Pi (a few MB; the downloaded
-   Wikipedia, maps and address index are not included and do not need to be):
-
-   ```bash
-   sudo tar --ignore-failed-read -czf ~/hub-backup.tar.gz /etc/hub.conf /etc/hub-control /etc/caddy /srv/hub/config /srv/hub/icons /srv/hub/icone /var/lib/hub-control
-   ```
-
-   (`/srv/hub/icone` is where 1.x kept the icons; `--ignore-failed-read` skips whichever of the two is missing.)
+1. **The version being replaced is kept by itself**: before changing anything, the installer saves it in
+   `/var/lib/raspberry-hub/previous` (its website, scripts, services and settings; a few MB, only the last one),
+   and `sudo hub-install.sh rollback` goes back to it (see [Going back](#going-back-to-the-previous-version)).
+   A copy of the settings to keep elsewhere is one command away: `sudo hub-install.sh backup`. (Installed versions
+   before 2.2 do neither yet: back up with the `tar` command of
+   [docs/upgrading.md](docs/upgrading.md#1-back-up-before-a-major-version).)
 
 2. **Update**, on the Raspberry Pi (once the installed version has this command, 2.0.1 does not yet):
 
@@ -218,9 +217,21 @@ Raspberry Pi that has to be converted, so read its section in [docs/upgrading.md
    the same version.
 
 If the update stops with an error, its output and `sudo hub-check.sh` say which step failed; run it again once
-it is fixed. `sudo bash hub-install.sh disable` puts Pi-hole back on ports 80 and 443 meanwhile (see
-[Rolling back](#rolling-back)). There is no automatic downgrade to an older major version: that is what the
-backup is for.
+it is fixed, or go back to the version of before.
+
+### Going back to the previous version
+
+```bash
+sudo hub-install.sh rollback
+```
+
+It puts back the version that the last upgrade replaced, as it was then: its website, scripts, services,
+Caddyfile and settings (the files the newer version added go). The services restart and `hub-check.sh --wait`
+says whether everything came back. The downloaded Wikipedia, maps and address index stay as they are; if the
+newer version rebuilt or renamed some of them, the rollback says which `sudo hub-update.sh` part brings them in
+step. In the hub, when an update fails or its check finds a problem, the update window offers the same with
+"Go back to X.Y.Z". Only the last version is kept, and once used it is gone: `sudo hub-install.sh upgrade`
+installs the newer one again.
 
 Changes to the interface only can be published faster with `.\deploy.ps1` (without `-Update`), which copies
 just the website. If the website and the Raspberry Pi scripts end up on different versions, the footer of the
@@ -241,7 +252,9 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Change the hub username and password | On the Pi: `sudo hub-control-setpass`. Password only: from the hub, user menu, "Change password" |
 | Update Wikipedia, maps, addresses now | On the Pi: `sudo hub-update.sh` (or `wiki`, `maps`, `addresses`) |
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
+| Back up the hub settings | On the Pi: `sudo hub-install.sh backup` (`~/hub-backup-YYYY-MM-DD.tar.gz`, a few MB; restore with `sudo tar -xzf FILE -C /` then `sudo bash hub-install.sh`) |
 | Install a new release | "Update" in the footer of the hub, when it says a new version is available; or on the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
+| Go back to the version before the last upgrade | On the Pi: `sudo hub-install.sh rollback` |
 | Change the country of the map, or the language or variant of Wikipedia | On the Pi: `sudo hub-install.sh configure` (shows the sizes, then downloads in the background; the old content stays until the new one is verified) |
 | Use a map box of your own | `/etc/hub.conf` (`MAP_BBOX`), then `sudo hub-update.sh maps` |
 | Change the language | In the browser settings (preferred languages): the hub follows them |
@@ -278,14 +291,18 @@ password, from the hub or with `sudo hub-control-setpass`, logs out every other 
 
 ## HTTPS certificate
 
-The certificate is issued by the "home CA" created by `pihole-cert.sh` (`pi-setup` package), valid only for
-`raspberry`, `pi.hole` and the IP address of the Raspberry Pi. Import the CA once on each device:
+The certificate is issued by a "home CA" that lives on the Raspberry Pi, valid only for `raspberry`, `pi.hole` and
+the IP address of the Raspberry Pi: the one of the hub (`/etc/hub-ca`, made by `hub-cert` the first time
+`hub-install.sh enable` runs), or the one of the `pi-setup` package (`pihole-cert.sh`) when it is installed.
+Import the CA once on each device:
 
 1. Download `http://raspberry/ca.crt` (also linked in the footer of the hub).
 2. Windows: double-click, Install certificate, Local machine, "Trusted Root Certification Authorities".
 3. Restart the browser.
 
-Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync.path` hands it to Caddy.
+Renewal is automatic: every week `hub-cert.timer` renews the certificate 30 days before it expires, or as soon as
+the address of the Raspberry Pi changed (with `pi-setup`, `pihole-cert.sh` does it), and `hub-cert-sync.path`
+hands it to Caddy. The CA itself lasts 10 years; `sudo hub-cert status` says which one is in use.
 
 ## What happens by itself
 
@@ -294,8 +311,8 @@ Renewal is automatic: `pihole-cert.sh` renews the certificate and `hub-cert-sync
 | At boot | Caddy, the control service and, if switched on, Wikipedia and address search start; then `hub-check.service` checks that everything came back (a failure becomes an alert in the hub) |
 | Every 5 seconds | The control service samples the hardware. The last hour and 24 hours stay in memory; the last month (one point per hour, about 30 KB) is written to `/var/lib/hub-control` only when the service stops and once a day, so a reboot does not empty it |
 | Every day | Asks GitHub for the latest release, for the notice in the hub (`CHECK_FOR_UPDATES` in `/etc/hub.conf`) |
-| Sunday 04:30 | Certificate check (`pi-setup` package) |
-| 1st of the month, 03:00 | After the system and Pi-hole: new Wikipedia edition if one came out, maps and address index rebuilt, then reboot |
+| Sunday 04:30 | Certificate check (`hub-cert.timer`, or `pihole-cert.sh` of `pi-setup`) |
+| 1st of the month, 05:30 | `hub-update.timer`: new Wikipedia edition if one came out, maps and address index rebuilt, then the same check as after a boot. It waits for a system update that is still running (the one of `pi-setup` runs at 03:00 and reboots), and a Raspberry Pi that was off catches up when it starts. A failure is an alert in the hub, and a message through the network monitor of `pi-setup` when it is there |
 
 Offline Wikipedia has no incremental updates: each edition is a new file (Italian with images: about 30 GB),
 downloaded only when it comes out. Maps (Italy: 4.7 GB) and addresses are rebuilt when they are more than 20 days old, or right away
@@ -405,13 +422,14 @@ month; `bash .github/scripts/check-sources.sh` runs the same checks by hand.
 | Address search does not answer | Is the index there? `ls -la /srv/hub/search`; rebuild it: `sudo hub-update.sh addresses` |
 | `raspberry` sometimes does not answer | The router has two addresses for that name: remove the old device called `raspberry` from the router |
 
-### Rolling back
+### Rolling back (switching the hub off)
+
+To go back to an earlier version of the hub instead, see [Going back to the previous version](#going-back-to-the-previous-version).
 
 ```
 cd ~/pi-setup/hub
 sudo bash hub-install.sh disable        # Pi-hole back on ports 80/443, Caddy stopped
-sudo systemctl disable --now kiwix-hub hub-search hub-control hub-cert-sync.path
-sudo cp /usr/local/sbin/monthly-update.sh.bak /usr/local/sbin/monthly-update.sh
+sudo systemctl disable --now kiwix-hub hub-search hub-control hub-cert-sync.path hub-update.timer hub-cert.timer
 sudo rm -rf /srv/hub                    # only if you also want to free the space used by the content
 ```
 

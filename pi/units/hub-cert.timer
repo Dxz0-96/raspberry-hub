@@ -1,0 +1,9 @@
+[Unit]
+Description=raspberry-hub: weekly check of the home certificate
+
+[Timer]
+OnCalendar=Sun 04:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

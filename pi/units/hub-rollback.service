@@ -1,0 +1,9 @@
+[Unit]
+Description=raspberry-hub: go back to the version kept before the last upgrade, started from the hub
+# hub-control (user hubctl) may only start it (polkit rule written by hub-service), and only when the hub offers
+# it: after an upgrade that failed or whose check found a problem. Like sudo hub-install.sh rollback.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/raspberry-hub/hub-rollback.py restore --yes
+TimeoutStartSec=30min

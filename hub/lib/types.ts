@@ -163,6 +163,8 @@ export interface UpgradeStatus {
   latest: (LatestRelease & { notes?: string }) | null;
   newer: boolean;
   progress: UpgradeProgress | null;
+  /** The version kept before the last upgrade, to go back to it (hub-rollback.py); missing on older installs */
+  previous?: { version: string; time: string } | null;
 }
 
 export interface SearchResult {

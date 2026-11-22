@@ -1,0 +1,79 @@
+#!/bin/bash
+# The home HTTPS certificate when the pi-setup package is not there: a small certificate authority of the hub
+# ("home CA", /etc/hub-ca) and the certificate of the Raspberry Pi signed by it.
+#
+#   sudo hub-cert ensure    creates the CA and the certificate if they are missing, renews the certificate if it
+#                           is about to expire (hub-install.sh enable)
+#   sudo hub-cert renew     only renews, never creates a CA (hub-cert.timer, every week)
+#   sudo hub-cert status    which CA is in use, and until when the certificate is valid
+#
+# The certificate is valid for raspberry, pi.hole and the address of the Raspberry Pi, for 397 days, and is
+# renewed 30 days before it expires or when the address changed. It goes to /etc/hub-ca/tls.pem, where
+# hub-cert-sync.path picks it up for Caddy; the CA certificate is downloadable from http://raspberry/ca.crt.
+# With pi-setup (pihole-cert.sh) installed, it does nothing: pi-setup keeps its own home CA.
+# HUB_CA_DIR and PI_IP move the folder and the address, HUB_CERT_ANY_USER=1 runs it without root (tests).
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CA_DIR="${HUB_CA_DIR:-/etc/hub-ca}"
+DAYS=397
+RENEW_DAYS=30
+PI="${PI_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+WHAT="${1:-status}"
+
+pisetup() { [ -x /usr/local/sbin/pihole-cert.sh ] && [ -s /etc/pihole-ca/ca.crt ]; }
+
+make_ca() {
+  install -d -m 700 "$CA_DIR"            # owned by root: it runs as root
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -sha256 \
+    -subj "/CN=raspberry-hub home CA ($(hostname))" \
+    -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -keyout "$CA_DIR/ca.key" -out "$CA_DIR/ca.crt" 2>/dev/null
+  chmod 600 "$CA_DIR/ca.key"
+  chmod 644 "$CA_DIR/ca.crt"
+  echo "home CA created: $CA_DIR/ca.crt (import it on each device: http://raspberry/ca.crt)"
+}
+
+names() {         # the subjectAltName of the certificate
+  echo "DNS:raspberry,DNS:pi.hole${PI:+,IP:$PI}"
+}
+
+needs_renewal() { # true if there is no valid certificate for these names for the next RENEW_DAYS days
+  local cert="$CA_DIR/tls.pem"
+  [ -s "$cert" ] || return 0
+  openssl x509 -in "$cert" -noout -checkend $(( RENEW_DAYS * 86400 )) >/dev/null 2>&1 || return 0
+  openssl verify -CAfile "$CA_DIR/ca.crt" <(openssl x509 -in "$cert") >/dev/null 2>&1 || return 0
+  [ -z "$PI" ] || openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -q "IP Address:$PI\b" || return 0
+  return 1
+}
+
+issue() {
+  local work
+  work=$(mktemp -d)
+  openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=raspberry" \
+    -keyout "$work/key.pem" -out "$work/req.pem" 2>/dev/null
+  printf 'subjectAltName=%s\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n' \
+    "$(names)" > "$work/ext.cnf"
+  openssl x509 -req -in "$work/req.pem" -CA "$CA_DIR/ca.crt" -CAkey "$CA_DIR/ca.key" -CAcreateserial \
+    -CAserial "$CA_DIR/ca.srl" -days "$DAYS" -sha256 -extfile "$work/ext.cnf" -out "$work/cert.pem" 2>/dev/null
+  # key and certificate in one file, as pihole-cert.sh writes it: hub-cert-sync copies it for Caddy
+  ( umask 077; cat "$work/key.pem" "$work/cert.pem" > "$CA_DIR/tls.pem.new" )
+  mv -f "$CA_DIR/tls.pem.new" "$CA_DIR/tls.pem"
+  rm -rf "$work"
+  echo "certificate issued for $(names | sed 's/DNS://g; s/IP://g'), valid until $(openssl x509 -in "$CA_DIR/tls.pem" -noout -enddate | cut -d= -f2)"
+}
+
+case "$WHAT" in
+  ensure|renew)
+    [ "$(id -u)" -eq 0 ] || [ "${HUB_CERT_ANY_USER:-}" = 1 ] || { echo "Run it with sudo." >&2; exit 1; }
+    if pisetup; then echo "the pi-setup package manages the home CA (pihole-cert.sh): nothing to do"; exit 0; fi
+    if [ ! -s "$CA_DIR/ca.key" ] || [ ! -s "$CA_DIR/ca.crt" ]; then
+      [ "$WHAT" = ensure ] || { echo "no home CA of the hub in $CA_DIR: nothing to renew"; exit 0; }
+      make_ca
+    fi
+    if needs_renewal; then issue; else echo "certificate valid until $(openssl x509 -in "$CA_DIR/tls.pem" -noout -enddate | cut -d= -f2)"; fi ;;
+  status)
+    if pisetup; then echo "home CA: pi-setup (/etc/pihole-ca/ca.crt), certificate /etc/pihole/tls.pem"
+    elif [ -s "$CA_DIR/ca.crt" ]; then echo "home CA: raspberry-hub ($CA_DIR/ca.crt), certificate valid until $(openssl x509 -in "$CA_DIR/tls.pem" -noout -enddate 2>/dev/null | cut -d= -f2)"
+    else echo "no home CA yet (sudo bash hub-install.sh enable creates one)"; fi ;;
+  *) echo "Usage: sudo hub-cert [ensure|renew|status]" >&2; exit 2 ;;
+esac

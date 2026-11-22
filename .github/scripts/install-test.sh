@@ -65,9 +65,21 @@ curl -sf http://127.0.0.1:8083/control/system \
   | python3 -c 'import json, sys; d = json.load(sys.stdin); assert d["cpu"]["count"] >= 1; print("hardware monitor:", d["model"], "/", d["disk"]["medium"], "/ power", d["power"])'
 curl -sf http://127.0.0.1:8083/control/system/history | json '["recent"]["step"]' > /dev/null
 curl -sf http://127.0.0.1:8083/control/upgrade | json '["installed"]' | grep -qx "$version" || fail "/control/upgrade"
-for unit in hub-control.service kiwix-hub.service hub-search.service hub-check.service hub-version-check.timer; do
+for unit in hub-control.service kiwix-hub.service hub-search.service hub-check.service hub-version-check.timer \
+            hub-update.timer hub-cert.timer; do
   systemctl is-enabled --quiet "$unit" || fail "$unit is not enabled"
 done
+# no pi-setup package here: the backup of the hub settings is the hub's own
+ADMIN_USER=pi hub-install.sh backup /tmp/hub-backup.tar.gz > /dev/null
+# the listing in a file: "tar | grep -q" fails under pipefail when grep stops early and tar gets SIGPIPE
+tar -tzf /tmp/hub-backup.tar.gz > /tmp/hub-backup.list
+grep -qx 'etc/hub.conf' /tmp/hub-backup.list || fail "the backup has no etc/hub.conf"
+grep -q '^var/lib/hub-control/' /tmp/hub-backup.list || fail "the backup has no switch states"
+[ "$(stat -c '%U %a' /tmp/hub-backup.tar.gz)" = "pi 600" ] || fail "the backup is not private to pi"
+rm -f /tmp/hub-backup.tar.gz /tmp/hub-backup.list
+# the same version installed twice replaced nothing: there is no previous version to go back to, and it says so
+if hub-install.sh rollback --yes 2> /tmp/rollback.err; then fail "rollback went ahead without a kept version"; fi
+grep -q "no previous version" /tmp/rollback.err || fail "rollback did not say why: $(cat /tmp/rollback.err)"
 [ -f /srv/hub/site/index.html ] && [ "$(stat -c %U /srv/hub/site)" = pi ] || fail "the website is not installed for pi"
 [ -s /srv/hub/status.json ] || fail "no /srv/hub/status.json"
 grep -q '^CHECK_FOR_UPDATES=' /etc/hub.conf && grep -q '^WATCHDOG=no' /etc/hub.conf || fail "/etc/hub.conf lacks the new settings"

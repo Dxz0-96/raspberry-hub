@@ -255,6 +255,60 @@ def migrate_drop_ins():
                 log(f"{path} comment translated")
 
 
+# --------------------------------------------------------------------------- pi-setup's monthly update
+# Up to 2.2 the content update of the hub was a block written into monthly-update.sh of the pi-setup package,
+# right before its reboot, found by the text of that script. hub-update.timer does it now: the block of the hub
+# (as 2.x and 1.x wrote it) comes out of both copies, the one of the package and the installed one. A call to
+# hub-update.sh added by hand stays, and hub-install.sh then leaves the timer off, so nothing runs twice.
+MONTHLY_BLOCK = '''    # raspberry-hub content: offline Wikipedia, maps and address index (see hub-update.sh).
+    # An error here does not stop the reboot: it is logged and reported.
+    if [ -x /usr/local/sbin/hub-update.sh ]; then
+      echo "===== $(ts) updating the hub content (Wikipedia, maps, addresses) ====="
+      if timeout 6h /usr/local/sbin/hub-update.sh all; then
+        echo "===== $(ts) hub content updated ====="
+      else
+        echo "===== $(ts) WARNING: the hub content update failed or is incomplete ====="
+        [ -x /usr/local/bin/netmon ] && /usr/local/bin/netmon notify "⚠️ Hub: updating Wikipedia, maps or addresses failed: see /var/log/monthly-update.log" >/dev/null 2>&1
+      fi
+    fi
+
+'''
+MONTHLY_BLOCK_1X = '''    # Contenuti dell'hub: Wikipedia offline, mappe e indice degli indirizzi (vedi hub-update.sh).
+    # Un errore qui non blocca il riavvio: viene registrato e segnalato.
+    if [ -x /usr/local/sbin/hub-update.sh ]; then
+      echo "===== $(ts) aggiorno i contenuti dell'hub (Wikipedia, mappe, indirizzi) ====="
+      if timeout 6h /usr/local/sbin/hub-update.sh tutto; then
+        echo "===== $(ts) contenuti dell'hub aggiornati ====="
+      else
+        echo "===== $(ts) ATTENZIONE: aggiornamento dei contenuti dell'hub non riuscito o incompleto ====="
+        [ -x /usr/local/bin/netmon ] && /usr/local/bin/netmon notify "⚠️ Hub: aggiornamento di Wikipedia, mappe o indirizzi non riuscito: vedi /var/log/monthly-update.log" >/dev/null 2>&1
+      fi
+    fi
+
+'''
+MONTHLY_BLOCKS = [MONTHLY_BLOCK, MONTHLY_BLOCK_1X]
+
+
+def remove_monthly_hook():
+    places = [P("/usr/local/sbin/monthly-update.sh")]
+    if os.environ.get("HUB_PISETUP"):
+        places.append(os.path.join(os.environ["HUB_PISETUP"], "monthly-update.sh"))
+    for path in places:
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            continue
+        new = text
+        for block in MONTHLY_BLOCKS:
+            new = new.replace(block, "")
+        if new != text:
+            with open(path, "r+", encoding="utf-8", newline="\n") as f:      # in place: owner and mode stay
+                f.write(new)
+                f.truncate()
+            log(f"{path}: hub block removed (hub-update.timer updates the content now)")
+
+
 def main():
     if ROOT == "/" and os.geteuid() != 0:
         print("Run it with sudo.", file=sys.stderr)
@@ -296,6 +350,7 @@ def main():
     move(P("/etc/caddy/Caddyfile.originale"), P("/etc/caddy/Caddyfile.orig"))
     remove(P("/usr/local/sbin/hub-servizio"))
     remove(P("/usr/local/sbin/hub-verifica.sh"))
+    remove_monthly_hook()
 
     if changes == 0:
         print("   nothing to migrate")

@@ -1,0 +1,12 @@
+[Unit]
+Description=raspberry-hub: monthly update of Wikipedia, maps and the address index
+
+[Timer]
+# The 1st of the month, after the system and Pi-hole update of the pi-setup package (03:00) and its reboot;
+# hub-update.sh also waits for a system update that is still running.
+OnCalendar=*-*-01 05:30
+# a Raspberry Pi that was off catches up when it starts again
+Persistent=true
+
+[Install]
+WantedBy=timers.target

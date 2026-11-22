@@ -9,7 +9,7 @@
 #                              every boot; /run is in memory, so nothing is written to the SD card)
 #
 # Exits with 0 if every check passes. Services switched off from the hub do not count as errors, and neither
-# do the parts of the pi-setup package when it is not installed.
+# do the parts of the pi-setup package (system update, network monitor) when it is not installed.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8
 CA=/etc/caddy/public/ca.crt          # public copy of the home CA (the same as http://raspberry/ca.crt)
@@ -97,12 +97,15 @@ else
 fi
 
 echo "Schedules"
+if grep -qs 'hub-update\.sh' /usr/local/sbin/monthly-update.sh; then
+  check "monthly content update (called by pi-setup's monthly-update.sh)" test -s /etc/cron.d/monthly-update
+else check "monthly content update scheduled (hub-update.timer)" active hub-update.timer; fi
+if [ -x /usr/local/sbin/pihole-cert.sh ]; then check "weekly certificate check scheduled (pi-setup)" test -s /etc/cron.d/pihole-cert
+else check "weekly certificate check scheduled (hub-cert.timer)" active hub-cert.timer; fi
 if [ "$PISETUP" = yes ]; then
-  check "monthly update scheduled" test -s /etc/cron.d/monthly-update
-  check "the monthly update includes the hub content" grep -q hub-update.sh /usr/local/sbin/monthly-update.sh
-  check "weekly certificate check scheduled" test -s /etc/cron.d/pihole-cert
+  check "system update scheduled (pi-setup)" test -s /etc/cron.d/monthly-update
   check "network monitor active" active netmon.timer
-else skipped "monthly update, certificate check and network monitor (pi-setup package not installed)"; fi
+else skipped "system update and network monitor (pi-setup package not installed)"; fi
 if grep -q '^CHECK_FOR_UPDATES=no' /etc/hub.conf 2>/dev/null; then skipped "daily check for new versions switched off"
 else check "daily check for new versions scheduled" active hub-version-check.timer; fi
 
