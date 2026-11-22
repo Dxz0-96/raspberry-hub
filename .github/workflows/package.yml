@@ -45,7 +45,7 @@ jobs:
         working-directory: hub
       - name: Build the package
         run: bash .github/scripts/build-package.sh "${TAG#v}" dist
-      - uses: actions/attest-build-provenance@v4
+      - uses: actions/attest@v4.2.2
         with:
           subject-path: dist/raspberry-hub-*.tar.gz
       - name: Attach it to the release
