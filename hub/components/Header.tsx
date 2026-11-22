@@ -8,6 +8,7 @@ import { duration } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { Dialog } from "./Dialog";
+import { RestartButton } from "./RestartButton";
 
 function ThemePicker() {
   const { choice, set } = useTheme();
@@ -160,7 +161,7 @@ function Session() {
   );
 }
 
-/** The header of every page: name of the Raspberry Pi, how it is doing, login and theme. (The language follows the
+/** The header of every page: name of the Raspberry Pi, how it is doing, login, restart and theme. (The language follows the
  *  browser: lib/i18n.tsx.) */
 export function Header({ title, back = false }: { title?: string; back?: boolean }) {
   const { system } = useHub();
@@ -185,6 +186,7 @@ export function Header({ title, back = false }: { title?: string; back?: boolean
         </div>
         <div className="topbar-actions">
           <Session />
+          <RestartButton />
           <ThemePicker />
         </div>
       </div>

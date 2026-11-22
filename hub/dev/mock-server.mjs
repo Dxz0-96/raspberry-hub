@@ -124,7 +124,8 @@ let blocking = true;
 let password = "test1234";
 let failures = 0;
 const sessions = new Set();
-const started = Date.now();
+/** When the pretend Raspberry Pi started: the restart button sets it again */
+let started = Date.now();
 
 // The made-up readings, shared with the demo on GitHub Pages (dev/pretend-pi.mjs)
 const history = makeHistory();
@@ -236,6 +237,12 @@ createServer(async (req, res) => {
       if (String(data.new ?? "").length < 8) return json(res, 400, { error: "password_too_short", message: "The new password must be at least 8 characters long." });
       password = data.new;
       return json(res, 200, { ok: true });
+    }
+    if (p === "/control/reboot") {
+      // the same checks as start_reboot() in hub-control.py
+      if (upgrade && !["done", "failed"].includes(upgrade.step)) return json(res, 409, { error: "upgrade_running", message: "An update is already running." });
+      setTimeout(() => { started = Date.now(); }, 3000);
+      return json(res, 202, { ok: true });
     }
     if (p === "/control/rollback") {
       // the same checks as start_rollback() in hub-control.py, in the same order

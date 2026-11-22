@@ -46,8 +46,37 @@ const shots = [
   { file: "maps.png", path: "/maps/#position=15.2/41.8986/12.4768", context: { viewport: { width: 1280, height: 800 }, colorScheme: "light" },
     search: "roma" },
   { file: "wikipedia.png", path: "/wikipedia/#search=garibaldi", context: { viewport: { width: 1280, height: 800 }, colorScheme: "dark" } },
-  { file: "home-italian.png", path: "/", context: { viewport: { width: 1440, height: 1000 }, colorScheme: "light", locale: "it-IT" } },
 ];
+
+/** home-languages.png: the header and the services of the hub in each language, side by side, as a browser in that
+ *  language gets them. Each part is a screenshot of its own; a small page lays them out and is photographed. */
+const LANGUAGES = [["en-US", "English"], ["it-IT", "Italiano"], ["es-ES", "Español"], ["fr-FR", "Français"], ["de-DE", "Deutsch"]];
+
+async function languages(browser) {
+  const parts = [];
+  for (const [locale, name] of LANGUAGES) {
+    const context = await browser.newContext({ locale, timezoneId: "Europe/Rome", viewport: { width: 560, height: 1400 },
+      colorScheme: "light", deviceScaleFactor: 1 });
+    const page = await context.newPage();
+    await open(page, "/");
+    const header = await page.locator(".topbar").screenshot();
+    const services = await page.locator("section.services").screenshot();
+    parts.push({ name, images: [header, services].map((b) => `data:image/png;base64,${b.toString("base64")}`) });
+    await context.close();
+  }
+  const context = await browser.newContext({ viewport: { width: 1720, height: 400 }, colorScheme: "light" });
+  const page = await context.newPage();
+  await page.setContent(`<!doctype html><html><body style="margin:0;padding:24px;background:#f3f5f1;
+    font:600 20px/1.3 'IBM Plex Sans',system-ui,sans-serif;color:#16201a">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:start">
+    ${parts.map((p) => `<figure style="margin:0;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px #0002">
+      <figcaption style="padding:10px 16px">${p.name}</figcaption>
+      ${p.images.map((src) => `<img src="${src}" style="display:block;width:100%">`).join("")}</figure>`).join("")}
+    </div></body></html>`);
+  await page.screenshot({ path: join(OUT, "home-languages.png"), fullPage: true });
+  console.log("docs/screenshots/home-languages.png");
+  await context.close();
+}
 
 try {
   await waitForServer();
@@ -65,6 +94,7 @@ try {
     console.log(`docs/screenshots/${shot.file}`);
     await context.close();
   }
+  await languages(browser);
   await browser.close();
 } finally {
   server.kill();

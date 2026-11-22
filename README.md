@@ -15,9 +15,9 @@ off, and see how the hardware is doing. Everything runs on the Raspberry Pi, wit
 a made-up Raspberry Pi. The switches and "Add service" work (log in as `admin`, password `demo`) and everything
 goes back to the start when the page reloads; the map has central Rome only, and Wikipedia is switched off.
 
-| Dark theme | Phone | Italian |
+| Dark theme | Phone | Multi language |
 |---|---|---|
-| ![Dark theme](docs/screenshots/home-dark.png) | ![Phone](docs/screenshots/phone.png) | ![Italian interface](docs/screenshots/home-italian.png) |
+| ![Dark theme](docs/screenshots/home-dark.png) | ![Phone](docs/screenshots/phone.png) | ![The hub in English, Italian, Spanish, French and German](docs/screenshots/home-languages.png) |
 
 | Offline maps with address search | Offline Wikipedia | Hardware |
 |---|---|---|
@@ -252,6 +252,7 @@ hub says so and suggests `.\deploy.ps1 -Update`.
 | Change the hub username and password | On the Pi: `sudo hub-control-setpass`. Password only: from the hub, user menu, "Change password" |
 | Update Wikipedia, maps, addresses now | On the Pi: `sudo hub-update.sh` (or `wiki`, `maps`, `addresses`) |
 | Check that everything is up | On the Pi: `sudo hub-check.sh` |
+| Restart the Raspberry Pi | The power button in the header of the hub: it asks for the login and a confirmation (or on the Pi: `sudo reboot`) |
 | Back up the hub settings | On the Pi: `sudo hub-install.sh backup` (`~/hub-backup-YYYY-MM-DD.tar.gz`, a few MB; restore with `sudo tar -xzf FILE -C /` then `sudo bash hub-install.sh`) |
 | Install a new release | "Update" in the footer of the hub, when it says a new version is available; or on the Pi: `sudo hub-install.sh upgrade` (see [Updating](#updating)) |
 | Go back to the version before the last upgrade | On the Pi: `sudo hub-install.sh rollback` |
@@ -279,7 +280,7 @@ search or the random article. With one edition nothing changes; each edition tak
 
 | What | Credentials | Where to change them |
 |---|---|---|
-| Switches and "Add service" | Username (`admin` unless you change it) and a password you choose | `sudo hub-control-setpass` |
+| Switches, "Add service", "Update" and restarting the Raspberry Pi | Username (`admin` unless you change it) and a password you choose | `sudo hub-control-setpass` |
 | Pi-hole dashboard | The Pi-hole password | `sudo pihole setpassword` |
 | Service status, hardware monitor, Wikipedia, maps | None | |
 

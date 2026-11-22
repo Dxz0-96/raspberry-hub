@@ -122,6 +122,9 @@ do_prepare() {
   for f in hub-search.py hub-control.py build-search-index.py hub-upgrade.py hub-configure.py hub-rollback.py; do install -o root -g root -m 755 "$HERE/$f" "$LIB/$f"; done
   install -o root -g root -m 644 "$HERE/countries.json" "$LIB/countries.json"
   install -o root -g root -m 755 "$HERE/kiwix-start" "$LIB/kiwix-start"
+  # at boot: no update can still be running, so the markers of one that was killed (power cut, out of memory)
+  # go, and the hub stops showing "download in progress"
+  install -o root -g root -m 644 "$HERE/tmpfiles.conf" /etc/tmpfiles.d/raspberry-hub.conf
   # the hub compares it with the version of the website and suggests an update when they differ
   printf '%s\n' "$HUB_VERSION" > "$LIB/VERSION"; chmod 644 "$LIB/VERSION"
   echo "   raspberry-hub $HUB_VERSION"
@@ -149,7 +152,8 @@ do_prepare() {
   echo "== Services"
   for u in kiwix-hub.service hub-search.service hub-control.service hub-cert-sync.path hub-cert-sync.service \
            hub-version-check.service hub-version-check.timer hub-upgrade@.service hub-check.service \
-           hub-update.service hub-update.timer hub-cert.service hub-cert.timer hub-rollback.service; do
+           hub-update.service hub-update.timer hub-cert.service hub-cert.timer hub-rollback.service \
+           hub-reboot.service; do
     install -o root -g root -m 644 "$HERE/units/$u" "/etc/systemd/system/$u"
   done
   systemctl daemon-reload

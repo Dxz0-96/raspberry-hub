@@ -31,6 +31,7 @@ export const en = {
     logIn: "Log in",
     changePassword: "Change password",
     logOut: "Log out",
+    restart: "Restart the Raspberry Pi",
   },
   password: {
     title: "Change password",
@@ -162,6 +163,7 @@ export const en = {
     content_update_running: "Wikipedia, the maps or the addresses are being updated: try again when they are done.",
     no_space: "Not enough free space on the Raspberry Pi for the update.",
     upgrade_not_started: "The Raspberry Pi could not start the update.",
+    reboot_not_started: "The Raspberry Pi could not start restarting.",
     no_previous: "There is no previous version to go back to.",
     rollback_not_started: "The Raspberry Pi could not start going back.",
   } as Record<string, string>,
@@ -296,6 +298,16 @@ export const en = {
       no_admin: "The Raspberry Pi cannot tell which user the hub belongs to.",
       internal_error: "Something went wrong on the Raspberry Pi.",
     } as Record<string, string>,
+  },
+  restart: {
+    title: "Restart the Raspberry Pi",
+    body: "The Raspberry Pi restarts, as with sudo reboot. For a minute or two the hub, Pi-hole and every service stop: meanwhile the devices at home may not reach the internet.",
+    contentRunning:
+      "Wikipedia, the maps or the addresses are being downloaded: the restart stops it, and it goes on at the next content update (Wikipedia from where it stopped).",
+    confirm: "Restart",
+    restarting: "The Raspberry Pi is restarting: the hub answers again in a minute or two.",
+    back: "The Raspberry Pi has restarted and the hub answers again.",
+    failed: "The restart did not start. Try again.",
   },
   demo: {
     label: "Demo",

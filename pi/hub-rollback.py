@@ -51,6 +51,7 @@ LOCK = os.environ.get("HUB_UPGRADE_LOCK", "/run/hub-upgrade.lock")       # the s
 FOLDERS = ["/srv/hub/site", LIB, "/srv/hub/config", "/srv/hub/icons", "/etc/hub-control", "/var/lib/hub-control"]
 # Single files: the hub's, or changed by its migrations (monthly-update.sh of the pi-setup package).
 FILES = ["/etc/hub.conf", "/etc/caddy/Caddyfile", "/etc/polkit-1/rules.d/50-hub-control.rules",
+         "/etc/tmpfiles.d/raspberry-hub.conf",
          "/etc/systemd/system.conf.d/hub-watchdog.conf", "/usr/local/sbin/monthly-update.sh"]
 # The files of the hub in folders it shares with the system, found by their name.
 SHARED = {"/usr/local/sbin": ["hub-*"],

@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
@@ -505,6 +506,34 @@ class WikipediaFiles(unittest.TestCase):
         self.assertIn("removed wikipedia_it.zim", result.stdout)
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "hub-control reads /proc")
+class PiholeSession(unittest.TestCase):
+    """The statistics of Pi-hole: one API session, kept across errors (Pi-hole has only a few seats)."""
+
+    def test_errors_do_not_open_new_sessions(self):
+        control = load("hub_control_dns", "hub-control.py")
+        stats = control.DnsStats()
+        calls = []
+
+        def call(method, path, body=None):
+            calls.append((method, path))
+            if path == "/auth":
+                return {"session": {"sid": f"sid-{len(calls)}"}}
+            if len(calls) == 6:
+                raise urllib.error.HTTPError(path, 401, "Unauthorized", {}, None)   # Pi-hole restarted
+            raise urllib.error.URLError("Pi-hole does not answer")
+
+        stats._call = call
+        with mock.patch.object(control, "read_text", return_value="the internal password"), \
+                mock.patch.object(control.time, "sleep", side_effect=[None, None, None, None, StopIteration]):
+            with self.assertRaises(StopIteration):
+                stats.run()
+        logins = [c for c in calls if c[1] == "/auth"]
+        # five rounds that all failed: one session at the start, one more only after the 401
+        self.assertEqual(len(logins), 2, calls)
+        self.assertIsNotNone(stats.sid)
+
+
 class Rollback(unittest.TestCase):
     """hub-rollback.py on a fake root: the version kept before an upgrade, and going back to it."""
 
@@ -865,6 +894,23 @@ class UpgradeButton(unittest.TestCase):
         shutil.rmtree(cls.folder, ignore_errors=True)
 
     request = HubControl.request
+
+    def test_the_restart_button(self):
+        self.state("upgrade.json")
+        hub = {"X-Hub": "1"}
+        status, data, _ = self.request("POST", "/control/reboot", {}, hub)
+        self.assertEqual((status, data["error"]), (401, "login_required"))
+        status, data, _ = self.request("POST", "/control/reboot", {}, {})
+        self.assertEqual((status, data["error"]), (403, "foreign_request"))     # not from the page of the hub
+        _, _, cookie = self.request("POST", "/control/login", {"username": "admin", "password": "test1234"}, hub)
+        logged_in = {**hub, "Cookie": cookie.split(";", 1)[0]}
+        self.state("upgrade.json", {"version": "2.1.0", "step": "install"})
+        status, data, _ = self.request("POST", "/control/reboot", {}, logged_in)
+        self.assertEqual((status, data["error"]), (409, "upgrade_running"))     # never in the middle of an upgrade
+        self.state("upgrade.json")
+        # no systemd here: the unit cannot start, and the hub says so
+        status, data, _ = self.request("POST", "/control/reboot", {}, logged_in)
+        self.assertEqual((status, data["error"]), (502, "reboot_not_started"))
 
     def test_going_back_to_the_previous_version(self):
         self.state("upgrade.json")
