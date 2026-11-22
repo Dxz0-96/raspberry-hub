@@ -401,7 +401,9 @@ sudo rm -rf /srv/hub                    # only if you also want to free the spac
 ## Contributing
 
 Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) (setup, tests, commit messages) and the
-[Code of Conduct](CODE_OF_CONDUCT.md). Security problems: see [SECURITY.md](SECURITY.md). Notes for AI
+[Code of Conduct](CODE_OF_CONDUCT.md). New here? Issues labelled
+[good first issue](https://github.com/Dxz0-96/raspberry-hub/labels/good%20first%20issue) need no Raspberry Pi, and the
+[milestones](https://github.com/Dxz0-96/raspberry-hub/milestones) show what the next version brings. Security problems: see [SECURITY.md](SECURITY.md). Notes for AI
 coding agents are in [AGENTS.md](AGENTS.md).
 
 ## Data and licenses
