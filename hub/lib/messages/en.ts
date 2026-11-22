@@ -377,7 +377,7 @@ export const en = {
   },
   wikipedia: {
     searchLabel: "Search Wikipedia",
-    placeholder: "Search for an article, for example Giuseppe Garibaldi",
+    placeholder: "Search for an article, for example Pizza",
     clear: "Clear the search",
     suggestions: "Suggestions",
     searchingTitles: "Searching the titles…",
