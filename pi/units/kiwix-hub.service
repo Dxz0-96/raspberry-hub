@@ -3,11 +3,13 @@ Description=raspberry-hub: offline Wikipedia (kiwix-serve)
 After=network.target
 # Switched off from the hub: stays off after a reboot too, until it is switched back on.
 ConditionPathExists=!/var/lib/hub-control/wikipedia.off
-ConditionPathExists=/srv/hub/zim/wikipedia_it.zim
+# Something downloaded: an edition and its link wikipedia_<language>.zim (hub-update.sh wiki)
+ConditionPathExistsGlob=/srv/hub/zim/wikipedia_*.zim
 
 [Service]
 DynamicUser=yes
-ExecStart=/usr/bin/kiwix-serve --address=127.0.0.1 --port=8081 --urlRootLocation=/wiki --threads=4 /srv/hub/zim/wikipedia_it.zim
+# kiwix-serve with every downloaded language (see the script)
+ExecStart=/usr/local/lib/raspberry-hub/kiwix-start
 Restart=on-failure
 RestartSec=10
 Nice=5

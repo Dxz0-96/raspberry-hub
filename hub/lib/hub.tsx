@@ -132,6 +132,8 @@ interface Hub {
   states: Record<string, LiveState> | null;
   dns: Dns | null;
   content: ContentStatus | null;
+  /** true once /status.json was asked for the first time, answered or not */
+  contentChecked: boolean;
   system: SystemInfo | null;
   history: History | null;
   /** The last 30 days, one point per hour: read only while a page shows it (see showMonth) */
@@ -188,6 +190,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const [services, setServices] = useState<Service[] | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [content, setContent] = useState<ContentStatus | null>(null);
+  const [contentChecked, setContentChecked] = useState(false);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [history, setHistory] = useState<History | null>(null);
   const [month, setMonth] = useState<MonthHistory["month"] | null>(null);
@@ -229,7 +232,10 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   usePolling(() => {
     void readServices();
-    api<ContentStatus>("/status.json").then(setContent).catch(() => setContent(null));
+    api<ContentStatus>("/status.json")
+      .then(setContent)
+      .catch(() => setContent(null))
+      .finally(() => setContentChecked(true));
     api<History>("/control/system/history").then(setHistory).catch(() => setHistory(null));
     if (monthShown) readMonth();
   }, 60000);
@@ -357,6 +363,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       states: status?.services ?? null,
       dns: status?.dns ?? null,
       content,
+      contentChecked,
       system,
       history,
       month,
@@ -380,7 +387,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       startUpgrade,
     }),
     [
-      services, status, content, system, history, month, busy, toast, loginOpen,
+      services, status, content, contentChecked, system, history, month, busy, toast, loginOpen,
       openLogin, closeLogin, logIn, logOut, changePassword, setSwitch, saveService, removeService, startUpgrade,
     ],
   );

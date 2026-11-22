@@ -7,15 +7,53 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { House, Search, Shuffle, X } from "lucide-react";
+import { House, Languages, Search, Shuffle, X } from "lucide-react";
 import { BASE, DEMO, useHub } from "@/lib/hub";
 import { decimal } from "@/lib/format";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type Locale } from "@/lib/i18n";
+import type { ContentStatus } from "@/lib/types";
 import { useTheme } from "@/lib/theme";
 
-const BOOK = "wikipedia_it";
-const CONTENT = `/wiki/content/${BOOK}/`;
 const PAGE_SIZE = 20;
+
+/** The book of an edition: kiwix-serve names it after the link hub-update.sh makes, wikipedia_<language>.
+ *  Raspberry Pi scripts older than the language field have the Italian edition. */
+function bookOf(language: string | null | undefined): string {
+  return `wikipedia_${language || "it"}`;
+}
+
+/** The languages of the installed editions, in the order of WIKI_LANGUAGE on the Raspberry Pi. */
+function editionsOf(content: ContentStatus | null): string[] {
+  const listed = content?.wikipedia.editions?.map((e) => e.language).filter(Boolean) ?? [];
+  return listed.length ? listed : [content?.wikipedia.language || "it"];
+}
+
+/** The edition to open: the one picked (or written in the address), else the one in the language of the hub,
+ *  else the first one. Only the edition follows the language: never the map or the address data. */
+function editionFor(installed: string[], picked: string | null, locale: Locale): string {
+  if (picked && installed.includes(picked)) return picked;
+  return installed.includes(locale) ? locale : installed[0];
+}
+
+/** "Italiano", "English": the name of a language in that language, as language pickers write it */
+function languageName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames([code], { type: "language" }).of(code) ?? code;
+    return name.charAt(0).toLocaleUpperCase(code) + name.slice(1);
+  } catch {
+    return code;
+  }
+}
+
+/** The edition written in the address (#article=Roma&edition=it), when several are installed */
+function readEdition(): string | null {
+  return new URLSearchParams(window.location.hash.slice(1)).get("edition");
+}
+
+/** Where the articles of a book are: /wiki/content/wikipedia_it/ */
+function contentOf(book: string): string {
+  return `/wiki/content/${book}/`;
+}
 
 type View = { kind: "article"; path: string } | { kind: "search"; query: string; from: number };
 
@@ -41,7 +79,8 @@ function readView(): View {
   return { kind: "article", path: params.get("article") ?? params.get("voce") ?? "" };
 }
 
-function writeView(view: View, replace = false) {
+/** edition: written in the address too when several editions are installed, so bookmarks keep it */
+function writeView(view: View, replace = false, edition: string | null = null) {
   const params = new URLSearchParams();
   if (view.kind === "search") {
     params.set("search", view.query);
@@ -49,13 +88,14 @@ function writeView(view: View, replace = false) {
   } else if (view.path) {
     params.set("article", view.path);
   }
+  if (edition) params.set("edition", edition);
   const hash = params.toString() ? `#${params}` : window.location.pathname;
   if (replace) window.history.replaceState(null, "", hash);
   else window.history.pushState(null, "", hash);
 }
 
-function articleUrl(path: string): string {
-  return BASE + CONTENT + path.split("/").map(encodeURIComponent).join("/");
+function articleUrl(book: string, path: string): string {
+  return BASE + contentOf(book) + path.split("/").map(encodeURIComponent).join("/");
 }
 
 /** The IBM Plex @font-face rules of the hub, with absolute addresses, to repeat inside the article. */
@@ -171,7 +211,9 @@ function snippet(text: string, query: string): ReactNode[] {
   return text.split(find).map((piece, i) => (i % 2 ? <mark key={i}>{piece}</mark> : piece));
 }
 
-function ArticleSearch({ onArticle, onSearch, initial }: { onArticle: (p: string) => void; onSearch: (q: string) => void; initial: string }) {
+function ArticleSearch({ book, onArticle, onSearch, initial }: {
+  book: string | null; onArticle: (p: string) => void; onSearch: (q: string) => void; initial: string;
+}) {
   const { t } = useI18n();
   const [text, setText] = useState(initial);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -184,7 +226,7 @@ function ArticleSearch({ onArticle, onSearch, initial }: { onArticle: (p: string
 
   useEffect(() => {
     const term = text.trim();
-    if (term.length < 2) {
+    if (term.length < 2 || !book) {
       setSuggestions([]);
       setSearching(false);
       return;
@@ -193,7 +235,7 @@ function ArticleSearch({ onArticle, onSearch, initial }: { onArticle: (p: string
     setSearching(true);
     const timer = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ content: BOOK, term, count: "8" });
+        const params = new URLSearchParams({ content: book, term, count: "8" });
         const response = await fetch(`${BASE}/wiki/suggest?${params}`, { signal: abort.signal });
         if (!response.ok) return;
         const data = (await response.json()) as Suggestion[];
@@ -209,7 +251,7 @@ function ArticleSearch({ onArticle, onSearch, initial }: { onArticle: (p: string
       clearTimeout(timer);
       abort.abort();
     };
-  }, [text]);
+  }, [text, book]);
 
   function pick(index: number) {
     const suggestion = suggestions[index];
@@ -295,7 +337,9 @@ function ArticleSearch({ onArticle, onSearch, initial }: { onArticle: (p: string
   );
 }
 
-function Results({ query, from, onArticle, onPage }: { query: string; from: number; onArticle: (p: string) => void; onPage: (from: number) => void }) {
+function Results({ book, query, from, onArticle, onPage }: {
+  book: string; query: string; from: number; onArticle: (p: string) => void; onPage: (from: number) => void;
+}) {
   const { t, locale } = useI18n();
   const [state, setState] = useState<{ total: number; list: Result[] } | "loading" | "error">("loading");
 
@@ -305,7 +349,7 @@ function Results({ query, from, onArticle, onPage }: { query: string; from: numb
     (async () => {
       try {
         const params = new URLSearchParams({
-          "books.name": BOOK, pattern: query, format: "xml", start: String(from + 1), pageLength: String(PAGE_SIZE),
+          "books.name": book, pattern: query, format: "xml", start: String(from + 1), pageLength: String(PAGE_SIZE),
         });
         const response = await fetch(`${BASE}/wiki/search?${params}`);
         if (!response.ok) throw new Error(String(response.status));
@@ -315,7 +359,7 @@ function Results({ query, from, onArticle, onPage }: { query: string; from: numb
           const link = item.getElementsByTagName("link")[0]?.textContent ?? "";
           return {
             title: item.getElementsByTagName("title")[0]?.textContent ?? "",
-            path: decodeURIComponent(link.slice(link.indexOf(CONTENT) + CONTENT.length)),
+            path: decodeURIComponent(link.slice(link.indexOf(contentOf(book)) + contentOf(book).length)),
             snippet: snippet(item.getElementsByTagName("description")[0]?.textContent ?? "", query),
             words: parseNumber(item.getElementsByTagName("wordCount")[0]?.textContent) || null,
           };
@@ -328,7 +372,7 @@ function Results({ query, from, onArticle, onPage }: { query: string; from: numb
     return () => {
       cancelled = true;
     };
-  }, [query, from]);
+  }, [book, query, from]);
 
   if (state === "loading") return <p className="wiki-note" role="status">{t.wikipedia.searching(query)}</p>;
   if (state === "error") return <p className="wiki-note" role="alert">{t.wikipedia.searchFailed}</p>;
@@ -366,8 +410,17 @@ function Results({ query, from, onArticle, onPage }: { query: string; from: numb
 }
 
 export default function Wikipedia() {
-  const { states } = useHub();
-  const { t } = useI18n();
+  const { states, content, contentChecked } = useHub();
+  const { t, locale } = useI18n();
+  const installed = editionsOf(content);
+  const [picked, setPicked] = useState<string | null>(null);
+  const edition = editionFor(installed, picked, locale);
+  // the edition is known once the content status arrived (or could not be read: then the Italian one)
+  const book = contentChecked ? bookOf(edition) : null;
+  const bookNow = useRef<string | null>(book);
+  /** the edition to write in the address: only when there is a choice */
+  const editionInAddress = useRef<string | null>(null);
+  editionInAddress.current = installed.length > 1 ? edition : null;
   const { dark } = useTheme();
   const [view, setView] = useState<View | null>(null);
   const [source, setSource] = useState<string | null>(null);
@@ -380,20 +433,23 @@ export default function Wikipedia() {
   const currentPath = useRef("");
   const resize = useRef<ResizeObserver | null>(null);
 
-  // The initial view and the browser back/forward buttons
+  // The initial view and the browser back/forward buttons, once the edition is known (and again if it changes)
   useEffect(() => {
+    bookNow.current = book;
+    if (!book) return;
     const update = () => {
       const next = readView();
+      setPicked(readEdition());
       setView(next);
       if (next.kind === "article") {
         if (!next.path) lookingForMainPage.current = true;
-        setSource(articleUrl(next.path));
+        setSource(articleUrl(book, next.path));
       }
     };
     update();
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
-  }, []);
+  }, [book]);
 
   // The search bar stays under the header while reading: it needs the height of the header
   useEffect(() => {
@@ -414,24 +470,36 @@ export default function Wikipedia() {
   useEffect(() => () => resize.current?.disconnect(), []);
 
   const openArticle = useCallback((path: string) => {
+    const current = bookNow.current;
+    if (!current) return;
     const next: View = { kind: "article", path };
     if (!path) lookingForMainPage.current = true;
-    writeView(next);
+    writeView(next, false, editionInAddress.current);
     setView(next);
-    setSource(articleUrl(path));
+    setSource(articleUrl(current, path));
     setLoading(true);
   }, []);
 
   const search = useCallback((query: string, from = 0) => {
     const next: View = { kind: "search", query, from };
-    writeView(next);
+    writeView(next, false, editionInAddress.current);
     setView(next);
     window.scrollTo({ top: 0 });
   }, []);
 
+  /** Another edition: the search goes on in it; an article is not the same page in another language, so its
+   *  main page opens. */
+  const pickEdition = useCallback((code: string) => {
+    const now = readView();
+    writeView(now.kind === "search" ? now : { kind: "article", path: "" }, false, code);
+    setPicked(code);
+  }, []);
+
   const randomArticle = useCallback(() => {
+    const current = bookNow.current;
+    if (!current) return;
     setView({ kind: "article", path: "" });
-    setSource(`${BASE}/wiki/random?content=${BOOK}&nocache=${Date.now()}`);
+    setSource(`${BASE}/wiki/random?content=${encodeURIComponent(current)}&nocache=${Date.now()}`);
     setLoading(true);
   }, []);
 
@@ -443,8 +511,9 @@ export default function Wikipedia() {
     setLoading(false);
     try {
       const pathname = win?.location.pathname ?? "";
-      const start = pathname.indexOf(CONTENT);
-      const article = start >= 0 ? decodeURIComponent(pathname.slice(start + CONTENT.length)) : "";
+      const where = contentOf(bookNow.current ?? "");
+      const start = pathname.indexOf(where);
+      const article = start >= 0 ? decodeURIComponent(pathname.slice(start + where.length)) : "";
       if (lookingForMainPage.current && article) {
         mainPage.current = article;
         lookingForMainPage.current = false;
@@ -453,7 +522,7 @@ export default function Wikipedia() {
       applyTheme(element, darkNow.current, article === mainPage.current);
       // if meanwhile the search results were opened, the address stays the one of the search
       if (article && readView().kind === "article") {
-        writeView({ kind: "article", path: article }, true);
+        writeView({ kind: "article", path: article }, true, editionInAddress.current);
         setView((before) => (before?.kind === "article" ? { kind: "article", path: article } : before));
       }
       document.title = doc?.title && article !== mainPage.current ? `${doc.title}, Wikipedia, raspberry` : "Wikipedia, raspberry";
@@ -491,8 +560,20 @@ export default function Wikipedia() {
     <>
       <div className="wiki-bar-region">
         <div className="wiki-bar">
-          <ArticleSearch onArticle={openArticle} onSearch={(q) => search(q)} initial={view?.kind === "search" ? view.query : ""} />
+          <ArticleSearch book={book} onArticle={openArticle} onSearch={(q) => search(q)}
+            initial={view?.kind === "search" ? view.query : ""} />
           <div className="wiki-actions">
+            {installed.length > 1 && (
+              <label className="button wiki-edition">
+                <Languages size={17} aria-hidden="true" />
+                <select value={edition} aria-label={t.wikipedia.edition} disabled={!available}
+                  onChange={(event) => pickEdition(event.target.value)}>
+                  {installed.map((code) => (
+                    <option key={code} value={code} lang={code}>{languageName(code)}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button type="button" className="button" onClick={() => openArticle("")} disabled={!available}>
               <House size={17} aria-hidden="true" />
               <span>{t.wikipedia.mainPage}</span>
@@ -514,8 +595,9 @@ export default function Wikipedia() {
           </div>
         ) : (
           <>
-            {view?.kind === "search" && (
-              <Results query={view.query} from={view.from} onArticle={openArticle} onPage={(from) => search(view.query, from)} />
+            {view?.kind === "search" && book && (
+              <Results book={book} query={view.query} from={view.from} onArticle={openArticle}
+                onPage={(from) => search(view.query, from)} />
             )}
             {/* the article stays loaded while looking at the results: going back, it is already there */}
             {source && (

@@ -377,6 +377,7 @@ export const es: Messages = {
     more: "Más resultados",
     mainPage: "Portada",
     random: "Artículo aleatorio",
+    edition: "Edición de Wikipedia",
     notDownloadedTitle: "Wikipedia todavía no se ha descargado",
     notDownloadedBody: "La Raspberry Pi la descarga sola: el hub muestra cuándo está lista.",
     offTitle: "Wikipedia está apagada",

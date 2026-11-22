@@ -50,11 +50,11 @@ for u in pihole-FTL unbound caddy hub-control; do
   check "$u starts at boot" at_boot "$u"
 done
 check "hub-cert-sync.path watching for certificate renewals" active hub-cert-sync.path
-for triple in kiwix-hub:wikipedia:/srv/hub/zim/wikipedia_it.zim hub-search:maps:/srv/hub/search/addresses.db; do
+for triple in "kiwix-hub:wikipedia:/srv/hub/zim/wikipedia_*.zim" hub-search:maps:/srv/hub/search/addresses.db; do
   IFS=: read -r u name needs <<<"$triple"
   check "$u starts at boot" at_boot "$u"
   if [ -e "/var/lib/hub-control/$name.off" ]; then skipped "$u switched off from the hub (stays off: correct)"
-  elif [ ! -e "$needs" ]; then skipped "$u waiting for its content, not downloaded yet"
+  elif ! compgen -G "$needs" >/dev/null; then skipped "$u waiting for its content, not downloaded yet"
   else check "$u running" active "$u"; fi
 done
 
@@ -84,7 +84,7 @@ check "switches refuse visitors who are not logged in" test "$(status_code -X PO
 
 echo "Content"
 if [ -e /var/lib/hub-control/wikipedia.off ]; then skipped "Wikipedia switched off from the hub"
-elif [ ! -e /srv/hub/zim/wikipedia_it.zim ]; then skipped "Wikipedia not downloaded yet"
+elif ! compgen -G '/srv/hub/zim/wikipedia_*.zim' >/dev/null; then skipped "Wikipedia not downloaded yet"
 else check "Wikipedia answers" answers 200 https://raspberry/wiki/; fi
 if [ -e /var/lib/hub-control/maps.off ]; then skipped "maps switched off from the hub"
 else

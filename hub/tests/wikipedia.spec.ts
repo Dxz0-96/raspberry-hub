@@ -3,6 +3,75 @@ import { expect, serviceIn, test } from "./helpers";
 
 const article = (page: Page) => page.frameLocator("iframe.wiki-article");
 const field = (page: Page) => page.getByRole("combobox", { name: "Search Wikipedia" });
+const frameBook = (page: Page) => page.locator("iframe.wiki-article");
+
+/** The Raspberry Pi has the Italian and the English edition (WIKI_LANGUAGE=it,en), without touching the mock. */
+async function twoEditions(page: Page) {
+  await page.route("**/status.json", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.wikipedia.language = "it";
+    data.wikipedia.editions = [
+      { language: "it", edition: "2026-08", bytes: 31e9 },
+      { language: "en", edition: "2026-10", bytes: 52e9 },
+    ];
+    await route.fulfill({ response, json: data });
+  });
+}
+
+test.describe("Several Wikipedia editions", () => {
+  test("an English browser gets the English one, and can search the other", async ({ page }) => {
+    await twoEditions(page);
+    await page.goto("/wikipedia/");
+    await expect(frameBook(page)).toHaveAttribute("src", /\/wiki\/content\/wikipedia_en\//);
+    const picker = page.getByRole("combobox", { name: "Wikipedia edition" });
+    await expect(picker).toHaveValue("en");
+    await expect(picker.getByRole("option")).toHaveText(["Italiano", "English"]);
+
+    await picker.selectOption("it");
+    await expect(frameBook(page)).toHaveAttribute("src", /\/wiki\/content\/wikipedia_it\/$/);
+    await expect(page).toHaveURL(/edition=it/);
+    const searched = page.waitForRequest((r) => r.url().includes("/wiki/search") && r.url().includes("books.name=wikipedia_it"));
+    await field(page).fill("garibaldi");
+    await field(page).press("Enter");
+    await searched;
+    await expect(page).toHaveURL(/#search=garibaldi&edition=it$/);
+    await expect(picker).toHaveValue("it");
+  });
+
+  test("a bookmark keeps its edition", async ({ page }) => {
+    await twoEditions(page);
+    await page.goto("/wikipedia/#article=Rome&edition=it");
+    await expect(frameBook(page)).toHaveAttribute("src", /\/wiki\/content\/wikipedia_it\/Rome$/);
+  });
+
+  test("with one edition there is nothing to choose", async ({ page }) => {
+    await page.goto("/wikipedia/");
+    await expect(article(page).locator(".mw-parser-output")).toContainText("Welcome");
+    await expect(page.getByRole("combobox", { name: "Wikipedia edition" })).toHaveCount(0);
+  });
+
+  test.describe("in an Italian browser", () => {
+    test.use({ locale: "it-IT" });
+
+    test("gets the Italian one", async ({ page }) => {
+      await twoEditions(page);
+      await page.goto("/wikipedia/");
+      await expect(frameBook(page)).toHaveAttribute("src", /\/wiki\/content\/wikipedia_it\//);
+      await expect(page.getByRole("combobox", { name: "Edizione di Wikipedia" })).toHaveValue("it");
+    });
+  });
+
+  test.describe("in a browser in a language without an edition", () => {
+    test.use({ locale: "de-DE" });
+
+    test("gets the first one: the Wikipedia language follows the hub, the map and the addresses do not", async ({ page }) => {
+      await twoEditions(page);
+      await page.goto("/wikipedia/");
+      await expect(frameBook(page)).toHaveAttribute("src", /\/wiki\/content\/wikipedia_it\//);
+    });
+  });
+});
 
 test.describe("Wikipedia", () => {
   test("the hub leads to Wikipedia", async ({ page }) => {
@@ -149,6 +218,36 @@ test.describe("Wikipedia", () => {
       await expect(article(page).locator("html")).toHaveClass(/skin-theme-clientpref-day/);
       await expect(article(page).locator("body")).toHaveCSS("color", "rgb(22, 32, 26)");
     });
+  });
+
+  test("opens the edition the Raspberry Pi has downloaded, whatever its language", async ({ page }) => {
+    await page.route("**/status.json", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.wikipedia.language = "en";
+      data.wikipedia.editions = [{ language: "en", edition: "2026-10", bytes: 52e9 }];
+      await route.fulfill({ response, json: data });
+    });
+    await page.goto("/wikipedia/");
+    await expect(article(page).locator(".mw-parser-output")).toContainText("Welcome to Wikipedia");
+    await expect(page.locator("iframe.wiki-article")).toHaveAttribute("src", /\/wiki\/content\/wikipedia_en\//);
+    const searched = page.waitForRequest((r) => r.url().includes("/wiki/search") && r.url().includes("books.name=wikipedia_en"));
+    await field(page).fill("garibaldi");
+    await field(page).press("Enter");
+    await searched;
+    await expect(page.locator(".wiki-count")).toHaveText("Results 1-20 of 11,661 for “garibaldi”");
+  });
+
+  test("a Raspberry Pi with older scripts has the Italian edition", async ({ page }) => {
+    await page.route("**/status.json", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      delete data.wikipedia.language;
+      delete data.wikipedia.editions;
+      await route.fulfill({ response, json: data });
+    });
+    await page.goto("/wikipedia/");
+    await expect(page.locator("iframe.wiki-article")).toHaveAttribute("src", /\/wiki\/content\/wikipedia_it\//);
   });
 
   test("Wikipedia switched off: explains what to do and leads back to the hub", async ({ page }) => {

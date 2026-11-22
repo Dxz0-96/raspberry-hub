@@ -1,9 +1,11 @@
 // A fake Wikipedia that answers like kiwix-serve under /wiki: a few made-up articles, suggestions,
 // full-text search (RSS/OpenSearch format, with numbers written "11,661" as Kiwix does) and random article.
-// Used by the mock Raspberry Pi (dev/mock-server.mjs) and by the Playwright tests.
+// Used by the mock Raspberry Pi (dev/mock-server.mjs) and by the Playwright tests. Every book wikipedia_<language>
+// answers, with the same articles: kiwix-serve names the books after the links hub-update.sh makes.
 
-const BOOK = "wikipedia_it";
-const CONTENT = `/wiki/content/${BOOK}/`;
+const BOOK = /^\/wiki\/content\/(wikipedia_[a-z][a-z-]*)(\/.*)?$/;
+const content = (book) => `/wiki/content/${book}/`;
+const bookParam = (value) => (/^wikipedia_[a-z][a-z-]*$/.test(value ?? "") ? value : "wikipedia_it");
 const MAIN_PAGE = "Main_Page";
 
 /** The articles: path -> title and paragraphs (links are names of other articles, as in the real archive). */
@@ -108,6 +110,7 @@ export function fakeWikipedia(req, res, url) {
   }
   if (p === "/wiki/search") {
     const query = url.searchParams.get("pattern") ?? "";
+    const book = bookParam(url.searchParams.get("books.name"));
     const start = Math.max(1, Number(url.searchParams.get("start") ?? 1));
     const count = Number(url.searchParams.get("pageLength") ?? 25);
     const all = search(query);
@@ -123,7 +126,7 @@ ${slice
   .map(
     (r) => `    <item>
       <title>${xml(r.title)}</title>
-      <link>${CONTENT}${encodeURIComponent(r.path)}</link>
+      <link>${content(book)}${encodeURIComponent(r.path)}</link>
       <description>...${xml(r.snippet)}...</description>
       <book><title>Wikipedia</title></book>
       <wordCount>${thousands(r.words)}</wordCount>
@@ -136,15 +139,16 @@ ${slice
     return true;
   }
   if (p === "/wiki/random") {
-    reply(res, 302, "text/plain", "", { Location: `${CONTENT}Rome` });
+    reply(res, 302, "text/plain", "", { Location: `${content(bookParam(url.searchParams.get("content")))}Rome` });
     return true;
   }
-  if (p === CONTENT || p === CONTENT.slice(0, -1)) {
-    reply(res, 302, "text/plain", "", { Location: `${CONTENT}${MAIN_PAGE}` });
+  const book = BOOK.exec(p);
+  if (book && (!book[2] || book[2] === "/")) {
+    reply(res, 302, "text/plain", "", { Location: `${content(book[1])}${MAIN_PAGE}` });
     return true;
   }
-  if (p.startsWith(CONTENT)) {
-    const path = decodeURIComponent(p.slice(CONTENT.length));
+  if (book) {
+    const path = decodeURIComponent(book[2].slice(1));
     reply(res, 200, "text/html; charset=utf-8", page(path));
     return true;
   }

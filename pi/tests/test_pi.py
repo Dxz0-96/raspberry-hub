@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -334,6 +335,135 @@ class CountryChoice(unittest.TestCase):
         self.assertEqual(self.conf_values(), before)
 
 
+KIWIX_LISTING = """<pre>
+      <a href="wikipedia_en_all_maxi_2026-07.zim">wikipedia_en_all_maxi_2026-07.zim</a>             2026-07-20 04:42  110G
+      <a href="wikipedia_en_all_maxi_2026-10.zim">wikipedia_en_all_maxi_2026-10.zim</a>             2026-10-20 04:42  115G
+      <a href="wikipedia_en_all_nopic_2026-10.zim">wikipedia_en_all_nopic_2026-10.zim</a>           2026-10-21 11:25   52G
+      <a href="wikipedia_en_all_mini_2026-10.zim">wikipedia_en_all_mini_2026-10.zim</a>             2026-10-09 08:25   12G
+      <a href="wikipedia_it_all_maxi_2026-08.zim">wikipedia_it_all_maxi_2026-08.zim</a>             2026-08-13 17:04   30G
+      <a href="wikipedia_it_all_nopic_2026-11.zim">wikipedia_it_all_nopic_2026-11.zim</a>           2026-11-16 15:18   10G
+      <a href="wikipedia_it_top_mini_2026-11.zim">wikipedia_it_top_mini_2026-11.zim</a>             2026-11-13 13:03  300M
+</pre>"""
+
+
+class WikipediaChoice(unittest.TestCase):
+    """The Wikipedia language and variant in hub-configure.py, checked against a copy of the Kiwix listing."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+        self.conf = os.path.join(self.folder, "hub.conf")
+        shutil.copy(os.path.join(PI, "hub.conf"), self.conf)
+        self.listing = os.path.join(self.folder, "listing.html")
+        with open(self.listing, "w", encoding="utf-8") as f:
+            f.write(KIWIX_LISTING)
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def configure(self, *args):
+        url = "file:" + urllib.request.pathname2url(self.listing)
+        return subprocess.run([sys.executable, os.path.join(PI, "hub-configure.py"), *args], capture_output=True,
+                              text=True, stdin=subprocess.DEVNULL,
+                              env={**os.environ, "HUB_CONF": self.conf, "HUB_WIKI_URL": url})
+
+    def values(self):
+        with open(self.conf, encoding="utf-8") as f:
+            return dict(re.findall(r"^([A-Z_]+)=(.*)$", f.read(), re.M))
+
+    def test_the_listing_gives_the_newest_edition_of_each_variant(self):
+        editions = load("hub_configure", "hub-configure.py").kiwix_editions(KIWIX_LISTING)
+        self.assertEqual(editions["en"], {"maxi": ("2026-10", "115G"), "nopic": ("2026-10", "52G"),
+                                          "mini": ("2026-10", "12G")})
+        self.assertEqual(set(editions["it"]), {"maxi", "nopic"})      # "top" subsets are not whole editions
+
+    def test_language_and_variant_without_questions(self):
+        result = self.configure("--wiki-language", "en", "--wiki-variant", "nopic")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = self.values()
+        self.assertEqual((values["WIKI_LANGUAGE"], values["WIKI_VARIANT"]), ("en", "nopic"))
+        self.assertEqual(values["MAP_COUNTRY"], "IT")                  # the country is another question
+        self.assertIn("sudo hub-update.sh wiki", result.stdout)
+
+    def test_several_editions(self):
+        result = self.configure("--wiki-language", "it:maxi,en:nopic")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.values()["WIKI_LANGUAGE"], self.values()["WIKI_VARIANT"]), ("it:maxi,en:nopic", "maxi"))
+        result = self.configure("--wiki-language", "it,en", "--wiki-variant", "nopic")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.values()["WIKI_LANGUAGE"], self.values()["WIKI_VARIANT"]), ("it,en", "nopic"))
+        self.assertIn("it (nopic), en (nopic)", result.stdout)
+        refused = self.configure("--wiki-language", "it:maxi,en:huge")
+        self.assertEqual(refused.returncode, 2)
+
+    def test_a_typo_is_caught_at_install_time(self):
+        before = self.values()
+        result = self.configure("--wiki-language", "itt")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not in the Kiwix listing", result.stderr)
+        result = self.configure("--wiki-language", "it", "--wiki-variant", "mini")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Variants of 'it': maxi, nopic", result.stderr)
+        self.assertEqual(self.values(), before)
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "Bash scripts with GNU tools")
+class WikipediaFiles(unittest.TestCase):
+    """kiwix-start serves every link wikipedia_<language>.zim; hub-update.sh removes the other languages."""
+
+    def setUp(self):
+        self.hub = tempfile.mkdtemp()
+        self.zim = os.path.join(self.hub, "zim")
+        os.makedirs(os.path.join(self.hub, "state"))
+        os.makedirs(self.zim)
+        for name in ("wikipedia_it_all_maxi_2026-08.zim", "wikipedia_en_all_nopic_2026-10.zim"):
+            with open(os.path.join(self.zim, name), "w", encoding="utf-8") as f:
+                f.write("zim")
+        os.symlink("wikipedia_it_all_maxi_2026-08.zim", os.path.join(self.zim, "wikipedia_it.zim"))
+        os.symlink("wikipedia_en_all_nopic_2026-10.zim", os.path.join(self.zim, "wikipedia_en.zim"))
+
+    def tearDown(self):
+        shutil.rmtree(self.hub, ignore_errors=True)
+
+    def test_kiwix_serves_one_book_per_language(self):
+        result = subprocess.run(["bash", os.path.join(PI, "kiwix-start"), "--list"], capture_output=True, text=True,
+                                env={**os.environ, "HUB_ZIM": self.zim})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(os.path.basename(p) for p in result.stdout.split()),
+                         ["wikipedia_en.zim", "wikipedia_it.zim"])
+        empty = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, empty, True)
+        nothing = subprocess.run(["bash", os.path.join(PI, "kiwix-start"), "--list"], capture_output=True, text=True,
+                                 env={**os.environ, "HUB_ZIM": empty})
+        self.assertNotEqual(nothing.returncode, 0)
+
+    def update(self, script, language):
+        hub = os.path.dirname(self.zim)
+        return subprocess.run(["bash", "-c", f'. "{os.path.join(PI, "hub-update.sh")}"; HUB_DIR="{hub}"; '
+                               f'ZIM="{self.zim}"; WIKI_LANGUAGE="{language}"; WIKI_VARIANT=maxi; {script}'],
+                              capture_output=True, text=True)
+
+    def test_several_languages_stay_and_are_all_in_the_status(self):
+        result = self.update("remove_other_languages", "it:maxi,en:nopic")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(os.listdir(self.zim)), 4)
+        result = self.update("wiki_editions", "it,en:nopic")
+        self.assertEqual(result.stdout.split("\n")[:2], ["it maxi", "en nopic"])
+        result = self.update("write_status", "en,it")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(os.path.join(os.path.dirname(self.zim), "status.json"), encoding="utf-8") as f:
+            wikipedia = json.load(f)["wikipedia"]
+        self.assertEqual(wikipedia["language"], "en")
+        self.assertEqual([(e["language"], e["edition"]) for e in wikipedia["editions"]],
+                         [("en", "2026-10"), ("it", "2026-08")])
+
+    def test_the_other_languages_go(self):
+        script = f'. "{os.path.join(PI, "hub-update.sh")}"; ZIM="{self.zim}"; WIKI_LANGUAGE=en; remove_other_languages'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(os.listdir(self.zim)), ["wikipedia_en.zim", "wikipedia_en_all_nopic_2026-10.zim"])
+        self.assertIn("removed wikipedia_it.zim", result.stdout)
+
+
 class UpgradeFrom1x(unittest.TestCase):
     """hub-migrate.py on a fake root with the files of a raspberry-hub 1.x installation."""
 
@@ -446,6 +576,16 @@ class UpgradeFrom1x(unittest.TestCase):
         self.assertIn("nothing to migrate", self.migrate())
         self.assertEqual(self.read("/etc/hub.conf"), conf)
 
+
+    def test_wikipedia_waits_for_any_language(self):
+        # 2.1: the built-in Wikipedia service needed the Italian edition
+        self.write("/srv/hub/config/services.json", json.dumps({"services": [
+            {"id": "wikipedia", "name": "Wikipedia", "url": "/wikipedia/", "type": "unit", "unit": "kiwix-hub.service",
+             "requires": "/srv/hub/zim/wikipedia_it.zim"}]}))
+        self.migrate()
+        service = json.loads(self.read("/srv/hub/config/services.json"))["services"][0]
+        self.assertEqual(service["requires"], "/srv/hub/zim/wikipedia_*.zim")
+        self.assertIn("nothing to migrate", self.migrate())
 
     def test_the_country_of_an_older_hub_conf(self):
         with open(os.path.join(PI, "hub.conf"), encoding="utf-8") as f:

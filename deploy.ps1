@@ -12,6 +12,7 @@
 #   PI_SSH_KEY=~/.ssh/id_ed25519   SSH key to use (~ is your user folder)
 #   HUB_URL=https://raspberry/     address of the hub, printed at the end
 #   MAP_COUNTRY=FR                 the country of the map on a new installation (ISO 3166 code; empty: it asks)
+#   WIKI_LANGUAGE=en               the Wikipedia language on a new installation, and WIKI_VARIANT=maxi|nopic|mini
 #
 # Which value wins: -Pi and -Key on the command line, then .env, then deploy.local.ps1 (the older way: a script
 # setting $DefaultPi and $DefaultKey, still read), then the defaults below.
@@ -34,6 +35,8 @@ $Settings = [ordered]@{
     HUB_URL    = "https://raspberry/"
     # answers hub-install.sh would ask on a new installation (re-runs for upgrades never ask)
     MAP_COUNTRY = ""
+    WIKI_LANGUAGE = ""
+    WIKI_VARIANT = ""
 }
 
 function Read-DotEnv([string]$Path, $Known) {
@@ -136,6 +139,14 @@ if ($Update) {
     if ($Settings.MAP_COUNTRY) {
         if ($Settings.MAP_COUNTRY -notmatch '^[A-Za-z]{2}$') { throw "MAP_COUNTRY in .env is not an ISO 3166 code (for example IT, FR)." }
         $Answers += "MAP_COUNTRY=$($Settings.MAP_COUNTRY) "
+    }
+    if ($Settings.WIKI_LANGUAGE) {
+        if ($Settings.WIKI_LANGUAGE -cnotmatch '^[a-z][a-z-]*$') { throw "WIKI_LANGUAGE in .env is not a language code (for example it, en)." }
+        $Answers += "WIKI_LANGUAGE=$($Settings.WIKI_LANGUAGE) "
+    }
+    if ($Settings.WIKI_VARIANT) {
+        if ($Settings.WIKI_VARIANT -cnotmatch '^(maxi|nopic|mini)$') { throw "WIKI_VARIANT in .env is maxi, nopic or mini." }
+        $Answers += "WIKI_VARIANT=$($Settings.WIKI_VARIANT) "
     }
     ssh -t -i $Key $Pi "sudo ${Answers}bash ~/pi-setup/hub/hub-install.sh"
     Assert-Success "hub-install.sh"

@@ -112,7 +112,18 @@ export interface MonthHistory {
 
 export interface ContentStatus {
   updated: string;
-  wikipedia: { edition: string | null; bytes: number | null; result: string | null; running: boolean };
+  wikipedia: {
+    /** The language of the edition, as Kiwix names it ("it", "en"): the book is wikipedia_<language>. Missing on
+     *  installs older than this field, which have the Italian edition. */
+    language?: string | null;
+    /** Every installed edition, in the order of WIKI_LANGUAGE; the hub opens the one of the browser language.
+     *  Missing on installs older than this field (one edition: language). */
+    editions?: { language: string; edition: string | null; bytes: number | null }[];
+    edition: string | null;
+    bytes: number | null;
+    result: string | null;
+    running: boolean;
+  };
   maps: { build: string | null; bytes: number | null; result: string | null; running: boolean };
   addresses: { date: string | null; bytes: number | null; result: string | null; running: boolean };
   /** The latest release found by the daily check (hub-update.sh check-version); null when it is switched off

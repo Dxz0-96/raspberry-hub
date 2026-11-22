@@ -86,7 +86,8 @@ export function dns() {
 export function contentStatus(latest) {
   return {
     updated: new Date().toISOString(),
-    wikipedia: { edition: "2026-08", bytes: 31e9, result: "ok", running: false },
+    wikipedia: { language: "it", edition: "2026-08", bytes: 31e9, result: "ok", running: false,
+      editions: [{ language: "it", edition: "2026-08", bytes: 31e9 }] },
     maps: { build: "20261116", bytes: 4.7e9, result: "ok", running: false },
     addresses: { date: "2026-11-08", bytes: 1.1e9, result: "ok", running: false },
     latest,

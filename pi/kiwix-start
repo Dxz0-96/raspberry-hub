@@ -1,0 +1,17 @@
+#!/bin/bash
+# Starts kiwix-serve with the Wikipedia editions that hub-update.sh downloaded: one link wikipedia_<language>.zim
+# per language in /srv/hub/zim, pointing to the edition (whose name has the variant and the date). kiwix-serve
+# names each book after the file it is given, so the hub reads /wiki/content/wikipedia_<language>/.
+# Run by kiwix-hub.service; HUB_ZIM moves the folder (tests).
+set -u
+ZIM="${HUB_ZIM:-/srv/hub/zim}"
+books=()
+for link in "$ZIM"/wikipedia_*.zim; do
+  language="${link##*/wikipedia_}"
+  language="${language%.zim}"
+  # the editions themselves (wikipedia_it_all_maxi_2026-08.zim) are served through their link
+  if [[ $language =~ ^[a-z][a-z-]*$ ]] && [ -e "$link" ]; then books+=("$link"); fi
+done
+if [ ${#books[@]} -eq 0 ]; then echo "no Wikipedia edition in $ZIM (sudo hub-update.sh wiki)" >&2; exit 1; fi
+if [ "${1:-}" = --list ]; then printf '%s\n' "${books[@]}"; exit 0; fi
+exec /usr/bin/kiwix-serve --address=127.0.0.1 --port=8081 --urlRootLocation=/wiki --threads=4 "${books[@]}"
