@@ -40,7 +40,8 @@ DNS from those addresses.)
   hardware watchdog, and support for the content on a USB disk (see [below](#looking-after-the-raspberry-pi)).
 - **DNS at home**: how a query travels from your devices through Pi-hole and Unbound, with real numbers.
 - **Offline maps** (Protomaps) with **address search** down to the house number, from OpenStreetMap data.
-- **Offline Wikipedia** (Kiwix) restyled to match the hub, in light and dark.
+- **Offline Wikipedia** (Kiwix) restyled to match the hub, in light and dark; with several editions installed,
+  each browser gets the one in its language.
 - **In the language of the browser**: English, Italian, Spanish, French and German; light and dark theme,
   usable on phones, keyboard and screen readers.
 
@@ -255,8 +256,11 @@ is no switch in the page: to change it, change the preferred languages in the br
 follows right away. The map labels follow the same language. The labels printed on the board drawing stay in
 English, like a real silkscreen.
 
-The language of the interface is not a place: it changes neither the map area, nor the address data, nor the
-Wikipedia edition that the Raspberry Pi downloads.
+The language of the interface is not a place: it changes neither the map area nor the address data. It does pick
+the Wikipedia edition when several are installed (`WIKI_LANGUAGE=it,en` in `/etc/hub.conf`, or two languages
+answered to `sudo hub-install.sh configure`): an English browser opens the English one, an Italian browser the
+Italian one, any other the first of the list. A menu on the Wikipedia page switches to another edition, for a
+search or the random article. With one edition nothing changes; each edition takes its own space on the disk.
 
 ## Credentials
 

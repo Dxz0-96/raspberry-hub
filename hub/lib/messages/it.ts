@@ -370,6 +370,7 @@ export const it: Messages = {
     more: "Altri risultati",
     mainPage: "Pagina principale",
     random: "Voce a caso",
+    edition: "Edizione di Wikipedia",
     notDownloadedTitle: "Wikipedia non è ancora stata scaricata",
     notDownloadedBody: "Il Raspberry la scarica da solo: l'hub mostra quando è pronta.",
     offTitle: "Wikipedia è spenta",
