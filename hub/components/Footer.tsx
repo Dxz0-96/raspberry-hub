@@ -20,7 +20,7 @@ const ON_GITHUB = REPO_NAME !== REPO;
 /** The footer: what the hub is, version, source code and where the data comes from. */
 export function Footer() {
   const { t, locale } = useI18n();
-  const { piVersion, content, authenticated, openLogin } = useHub();
+  const { piVersion, content, system, authenticated, openLogin } = useHub();
   // the release being installed: the dialog stays open when the notice goes away (the new version answers)
   const [upgrade, setUpgrade] = useState<{ version: string; installed: string } | null>(null);
   // the website and the Raspberry Pi scripts come from different releases: deploy.ps1 without -Update
@@ -47,7 +47,7 @@ export function Footer() {
             ))}
           </p>
           <p>{t.footer.about}</p>
-          {BUILT && <p className="footer-small">{t.footer.built(longDate(BUILT, locale))}</p>}
+          {BUILT && <p className="footer-small">{t.footer.built(longDate(BUILT, locale, system?.timezone))}</p>}
           {available && (
             <div className="footer-update">
               <p>

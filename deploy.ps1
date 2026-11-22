@@ -11,6 +11,7 @@
 #   PI_HOST=pi@192.168.1.10        Raspberry Pi to deploy to (SSH user@host)
 #   PI_SSH_KEY=~/.ssh/id_ed25519   SSH key to use (~ is your user folder)
 #   HUB_URL=https://raspberry/     address of the hub, printed at the end
+#   MAP_COUNTRY=FR                 the country of the map on a new installation (ISO 3166 code; empty: it asks)
 #
 # Which value wins: -Pi and -Key on the command line, then .env, then deploy.local.ps1 (the older way: a script
 # setting $DefaultPi and $DefaultKey, still read), then the defaults below.
@@ -31,6 +32,8 @@ $Settings = [ordered]@{
     PI_HOST    = "pi@raspberry"
     PI_SSH_KEY = "~/.ssh/id_ed25519"
     HUB_URL    = "https://raspberry/"
+    # answers hub-install.sh would ask on a new installation (re-runs for upgrades never ask)
+    MAP_COUNTRY = ""
 }
 
 function Read-DotEnv([string]$Path, $Known) {
@@ -128,7 +131,13 @@ if ($Update) {
     Assert-Success "Unpacking the pi folder"
     Remove-Item $Package
     Write-Host "== Installing on the Raspberry Pi (sudo asks for your password)"
-    ssh -t -i $Key $Pi "sudo bash ~/pi-setup/hub/hub-install.sh"
+    # only values of the expected shape go into the remote command line
+    $Answers = ""
+    if ($Settings.MAP_COUNTRY) {
+        if ($Settings.MAP_COUNTRY -notmatch '^[A-Za-z]{2}$') { throw "MAP_COUNTRY in .env is not an ISO 3166 code (for example IT, FR)." }
+        $Answers += "MAP_COUNTRY=$($Settings.MAP_COUNTRY) "
+    }
+    ssh -t -i $Key $Pi "sudo ${Answers}bash ~/pi-setup/hub/hub-install.sh"
     Assert-Success "hub-install.sh"
     Write-Host "== Done: reload $HubUrl (devices that were logged in have to log in again after an upgrade from 1.x)"
     return

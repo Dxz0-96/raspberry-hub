@@ -98,6 +98,19 @@ print(meta.get("places_read", 0), entries, meta.get("data_date") or "-")' "$WORK
   fi
 fi
 
+# --------------------------------------------------------------------------- Countries (hub-install.sh configure)
+# Every country the installer offers: its address dump must still be published where pi/countries.json says.
+name="Countries (pi/countries.json)"
+missing=(); count=0
+while read -r code path; do
+  count=$((count + 1))
+  sum=$(curl -fsSL --max-time 30 "https://download1.graphhopper.com/public/$path.md5" 2>/dev/null | awk '{print $1}')
+  [[ $sum =~ ^[0-9a-f]{32}$ ]] || missing+=("$code")
+done < <(python3 -c 'import json, sys
+for c in json.load(open(sys.argv[1], encoding="utf-8"))["countries"]: print(c["code"], c["addresses"])' "$ROOT/pi/countries.json")
+if [ "$count" -gt 0 ] && [ ${#missing[@]} -eq 0 ]; then ok "$name: the address dump of each of the $count countries is published"
+else fail "$name" "no address dump (MD5) for ${missing[*]:-any country}: renamed or removed? Update pi/countries.json"; fi
+
 # --------------------------------------------------------------------------- go-pmtiles (hub-install.sh prepare)
 name="go-pmtiles $PMTILES_VERSION"
 if ! curl -fsSL --max-time 300 -o "$WORK/pmtiles.tar.gz" "$PMTILES_URL"; then

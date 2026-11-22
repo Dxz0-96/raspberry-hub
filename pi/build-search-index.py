@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Builds the address search index from the Photon/Nominatim dump (OpenStreetMap data).
 
-    zstd -dc photon-dump-italy-1.0-latest.jsonl.zst | build-search-index.py --out addresses.db
+    zstd -dc photon-dump-italy-1.0-latest.jsonl.zst | build-search-index.py --out addresses.db --languages it
     build-search-index.py --check addresses.db     runs a test search; exits with 0 if the index answers
     build-search-index.py --date addresses.db      prints the date of the data (YYYY-MM-DD)
     build-search-index.py --migrate addresses.db   converts an index built by an older version, in place
+
+--languages: the languages of the street names (ADDRESS_LANGUAGES in /etc/hub.conf), recorded in the index for the
+rules of hub-search.py. With exactly one, the names in that language come first where a place has several (Italy:
+"Bolzano" before "Bozen"); otherwise the local name.
 
 Reads the dump line by line from stdin and works on disk: memory use stays low even on a Pi 3.
 SQLite temporary files go to the directory in SQLITE_TMPDIR (not /tmp, which is in RAM).
@@ -13,7 +17,7 @@ Tables:
     entries         one row per street (segments merged by name + city + postcode), locality or named place
     entries_fts     FTS5 full-text index over the entries (name, place, geographic cell)
     house_numbers   house numbers with coordinates, looked up by normalized street name
-    meta            data date and counts
+    meta            data date, counts, languages of the street names, normalization version
 """
 import argparse
 import json
@@ -24,6 +28,8 @@ import time
 import unicodedata
 
 SCHEMA = 3
+# 2: folds ß, ø, æ... and keeps letters of other scripts; hub-search.py normalizes queries the same way
+NORM = 2
 BATCH = 5000
 # The geometry is the heaviest part of each line and is not needed: dropping it before parsing the JSON
 # halves the time. Simple GeoJSON geometries contain no nested braces.
@@ -35,18 +41,31 @@ LOCALITY_TYPES = {"city", "district", "locality", "county", "state"}
 FTS_STATEMENTS = [
     """CREATE VIRTUAL TABLE entries_fts USING fts5(name, place, cell, content='',
                                                  tokenize="unicode61 remove_diacritics 2", prefix='2 3 4')""",
+    # the tokenizer keeps "ß" as it is: written "ss", as norm() does, it matches "strasse" too
     """INSERT INTO entries_fts(rowid, name, place, cell)
-         SELECT id, name || ' ' || alt, city || ' ' || district || ' ' || province || ' ' || postcode,
+         SELECT id, replace(lower(name || ' ' || alt), 'ß', 'ss'),
+                replace(lower(city || ' ' || district || ' ' || province || ' ' || postcode), 'ß', 'ss'),
                 'c' || CAST((lat + 90) * 2 AS INTEGER) || 'x' || CAST((lon + 180) * 2 AS INTEGER) FROM entries""",
 ]
 FTS_OPTIMIZE = "INSERT INTO entries_fts(entries_fts) VALUES('optimize')"
 
 
+# Letters that Unicode does not split into a base letter and an accent
+FOLDED = str.maketrans({"ß": "ss", "æ": "ae", "ø": "o", "œ": "oe", "ł": "l", "đ": "d", "ð": "d", "þ": "th", "ı": "i"})
+
+
 def norm(text):
-    """lower case, no accents, only letters and digits separated by one space"""
-    text = unicodedata.normalize("NFKD", text.lower())
+    """Lower case, no accents, only letters and digits separated by one space (the same as norm() of hub-search.py
+    with version NORM)."""
+    text = unicodedata.normalize("NFKD", text.lower().translate(FOLDED))
     text = "".join(c for c in text if not unicodedata.combining(c))
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", text).split())
+    return " ".join(re.sub(r"[\W_]+", " ", text).split())
+
+
+def postcode_of(value):
+    """The first postcode of the field, as written in the country ("20121", "1000", "1012 AB", "SW1A 1AA")."""
+    first_one = re.split(r"[;,]", str(value or ""))[0]
+    return " ".join(re.sub(r"[^0-9A-Za-z -]", "", first_one).upper().split())[:10]
 
 
 def norm_house_number(number):
@@ -79,7 +98,7 @@ def read_places(stream):
                     yield None, place
 
 
-def build(output):
+def build(output, languages=()):
     start = time.time()
     db = sqlite3.connect(output, isolation_level=None)
     db.executescript("""
@@ -114,7 +133,7 @@ def build(output):
         lon, lat = centroid
         address = p.get("address") or {}
         city = first(address.get("city"))
-        postcode = (re.findall(r"\d{5}", str(p.get("postcode") or "")) or [""])[0]
+        postcode = postcode_of(p.get("postcode"))
         province = first(address.get("county"))
         region = first(address.get("state"))
         address_type = p.get("address_type")
@@ -128,7 +147,7 @@ def build(output):
                     numbers.append((street, norm(street), n, city, norm(city), postcode, province, region, lat, lon))
 
         names = p.get("name") or {}
-        name = first(names.get("name:it")) or first(names.get("name"))
+        name = (first(names.get(f"name:{languages[0]}")) if len(languages) == 1 else "") or first(names.get("name"))
         if name and address_type != "country":
             alt = " ".join(x for x in (first(names.get("alt_name")), first(names.get("loc_name")),
                                        first(names.get("short_name"))) if x)
@@ -214,7 +233,8 @@ def build(output):
     }
     db.executemany("INSERT INTO meta VALUES (?, ?)", [
         ("schema", str(SCHEMA)), ("data_date", data_date), ("created", time.strftime("%Y-%m-%d %H:%M:%S")),
-        ("places_read", str(read)), *((k, str(v)) for k, v in counts.items())])
+        ("places_read", str(read)), ("languages", ",".join(languages)), ("norm", str(NORM)),
+        *((k, str(v)) for k, v in counts.items())])
     db.execute("VACUUM")
     db.execute("PRAGMA journal_mode=DELETE")
     db.close()
@@ -228,12 +248,17 @@ def open_read_only(path):
 
 
 def check(path):
+    """The index has its tables, enough streets, and its most important place is found by the full-text search
+    (any country: "roma" for Italy, "paris" for France)."""
     try:
         db = open_read_only(path)
         schema = db.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
         streets = db.execute("SELECT count(*) FROM entries WHERE type = 'street'").fetchone()[0]
+        top = db.execute("SELECT name_norm FROM entries WHERE type = 'place' AND name_norm <> '' ORDER BY id LIMIT 1"
+                         ).fetchone()
+        word = max(top[0].split(), key=len) if top else ""
         found = db.execute("SELECT count(*) FROM (SELECT rowid FROM entries_fts WHERE entries_fts MATCH ? LIMIT 5)",
-                           ('"roma"*',)).fetchone()[0]
+                           (f'"{word}"*',)).fetchone()[0] if word else 0
     except sqlite3.Error as error:
         print(f"index not readable: {error}", file=sys.stderr)
         return 1
@@ -308,10 +333,13 @@ def main():
     group.add_argument("--check", metavar="FILE", help="check that the index answers")
     group.add_argument("--date", metavar="FILE", help="print the date of the data")
     group.add_argument("--migrate", metavar="FILE", help="convert an index built by raspberry-hub 1.x")
+    parser.add_argument("--languages", default="", metavar="it,fr",
+                        help="with --out: the languages of the street names, separated by commas")
     args = parser.parse_args()
     if args.out:
         sys.stdin.reconfigure(encoding="utf-8", errors="replace")
-        return build(args.out)
+        languages = tuple(code for code in re.split(r"[\s,]+", args.languages.lower()) if re.fullmatch(r"[a-z]{2}", code))
+        return build(args.out, languages)
     if args.check:
         return check(args.check)
     if args.migrate:

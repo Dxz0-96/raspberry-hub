@@ -5,7 +5,10 @@
 #   sudo hub-update.sh wiki           Wikipedia only
 #   sudo hub-update.sh maps           maps only
 #   sudo hub-update.sh addresses      address index only
-#   sudo hub-update.sh estimate-maps  tells how big the maps would be, without downloading them
+#   sudo hub-update.sh maps addresses several of them
+#   sudo hub-update.sh estimate-maps [BOX]
+#                                     tells how big the maps of MAP_BBOX (or of BOX: west,south,east,north) would be,
+#                                     without downloading them
 #   sudo hub-update.sh status         only rewrites /srv/hub/status.json
 #   sudo hub-update.sh check-version  asks GitHub for the latest release (hub-version-check.timer, daily)
 #
@@ -21,6 +24,7 @@ WIKI_VARIANT=maxi
 MAP_BBOX=6.6,35.4,18.6,47.2
 MAP_MAXZOOM=15
 ADDRESS_DUMP_URL=https://download1.graphhopper.com/public/europe/italy/photon-dump-italy-1.0-latest.jsonl.zst
+ADDRESS_LANGUAGES=it
 MIN_AGE_DAYS=20
 HUB_DIR=/srv/hub
 CHECK_FOR_UPDATES=yes
@@ -46,6 +50,16 @@ result() { echo "$2" > "$STATE/$1.result"; }          # $1 = wiki|maps|addresses
 failed() { log "ERROR $1: $2"; result "$1" "error: $2"; return 1; }
 free_kb() { df -Pk "$HUB_DIR" | awk 'NR==2 {print $4}'; }
 age_days() { echo $(( ( $(date +%s) - $(stat -c %Y "$1" 2>/dev/null || echo 0) ) / 86400 )); }
+remote_size() {   # $1 = address: the size of the file in bytes, 0 if unknown
+  curl -fsSIL --max-time 60 "$1" | awk 'tolower($1)=="content-length:" {v=$2} END {print v+0}' | tr -d '\r'
+}
+# What the installed content was made from, next to it: when the settings change (another country, sudo
+# hub-install.sh configure), the content is rebuilt even if it is recent. Content installed before these files
+# existed was made from the settings of now.
+made_from() {     # $1 = the file that says it, $2 = the content, $3 = the settings of now: true if they match
+  if [ -s "$2" ] && [ ! -f "$1" ]; then echo "$3" > "$1"; fi
+  [ ! -s "$2" ] || [ "$(cat "$1" 2>/dev/null)" = "$3" ]
+}
 
 write_status() {
   HUB_DIR="$HUB_DIR" WIKI_LANGUAGE="$WIKI_LANGUAGE" python3 - <<'PY'
@@ -103,7 +117,7 @@ latest_wiki() {   # the newest edition of the configured language and variant in
     | grep -oE "wikipedia_${WIKI_LANGUAGE}_all_${WIKI_VARIANT}_[0-9]{4}-[0-9]{2}\.zim" | sort -u | tail -1
 }
 wiki_size() {     # $1 = file name: its size in bytes, 0 if unknown
-  curl -fsSIL --max-time 60 "$WIKI_URL$1" | awk 'tolower($1)=="content-length:" {v=$2} END {print v+0}' | tr -d '\r'
+  remote_size "$WIKI_URL$1"
 }
 wiki_sha256() {   # $1 = file name: the SHA-256 published next to it
   curl -fsSL --max-time 60 "$WIKI_URL$1.sha256" | awk '{print $1}'
@@ -167,9 +181,11 @@ print(b[-1]["key"] if b else "")'
 }
 
 do_maps() {
-  local latest dest="$MAPS/basemap.pmtiles" rc
+  local latest dest="$MAPS/basemap.pmtiles" rc area="$MAP_BBOX z$MAP_MAXZOOM"
   command -v pmtiles >/dev/null || { failed maps "pmtiles command not installed"; return 1; }
-  if [ -s "$dest" ] && [ "$(age_days "$MAPS/basemap.build")" -lt "$MIN_AGE_DAYS" ]; then
+  if ! made_from "$MAPS/basemap.area" "$dest" "$area"; then
+    log "maps: the installed ones are of another area ($(cat "$MAPS/basemap.area")), extracting the new one"
+  elif [ -s "$dest" ] && [ "$(age_days "$MAPS/basemap.build")" -lt "$MIN_AGE_DAYS" ]; then
     log "maps: the installed ones are less than $MIN_AGE_DAYS days old, keeping them"; result maps ok; return 0
   fi
   latest=$(latest_build)
@@ -191,18 +207,20 @@ do_maps() {
   chmod 644 "$dest.new"
   mv -f "$dest.new" "$dest"
   echo "$latest" > "$MAPS/basemap.build"
+  echo "$area" > "$MAPS/basemap.area"
   log "maps: installed ($(( $(stat -c %s "$dest") / 1048576 )) MB, build $latest)"
   result maps ok
 }
 
-do_estimate_maps() {
-  local latest
+do_estimate_maps() {   # $1 = box (west,south,east,north), MAP_BBOX if empty
+  local latest box="${1:-$MAP_BBOX}"
+  [[ $box =~ ^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$ ]] || { echo "not a box: $box (west,south,east,north)" >&2; return 2; }
   command -v pmtiles >/dev/null || { echo "pmtiles command not installed" >&2; return 1; }
   latest=$(latest_build)
   [ -n "$latest" ] || { echo "list of builds not readable" >&2; return 1; }
-  echo "Latest build: $latest"
+  echo "Latest build: $latest, box $box, zoom up to $MAP_MAXZOOM"
   pmtiles extract "$TILES_URL$latest" /dev/null \
-      --bbox="$MAP_BBOX" --maxzoom="$MAP_MAXZOOM" --dry-run 2>&1 | tr '\r' '\n' | grep -vE '^[[:space:]]*$' | tail -n 8
+      --bbox="$box" --maxzoom="$MAP_MAXZOOM" --dry-run 2>&1 | tr '\r' '\n' | grep -vE '^[[:space:]]*$' | tail -n 8
 }
 
 # --------------------------------------------------------------------------- Addresses
@@ -211,19 +229,25 @@ dump_md5() {      # the MD5 published next to the address dump
 }
 
 do_addresses() {
-  local db="$SEARCH/addresses.db" dump="$SEARCH/dump.jsonl.zst" expected md5 rc
-  if [ -s "$db" ] && [ "$(age_days "$db")" -lt "$MIN_AGE_DAYS" ]; then
+  local db="$SEARCH/addresses.db" dump="$SEARCH/dump.jsonl.zst" expected md5 rc needed same=yes
+  local source="$ADDRESS_DUMP_URL $ADDRESS_LANGUAGES"
+  if ! made_from "$SEARCH/addresses.source" "$db" "$source"; then
+    same=no; log "addresses: the installed index comes from another dump, building the new one"
+  elif [ -s "$db" ] && [ "$(age_days "$db")" -lt "$MIN_AGE_DAYS" ]; then
     log "addresses: the installed index is less than $MIN_AGE_DAYS days old, keeping it"; result addresses ok; return 0
   fi
   expected=$(dump_md5)
   [ ${#expected} -eq 32 ] || { failed addresses "MD5 checksum of the dump not readable"; return 1; }
-  if [ -s "$db" ] && [ "$(cat "$SEARCH/addresses.md5" 2>/dev/null)" = "$expected" ]; then
+  if [ "$same" = yes ] && [ -s "$db" ] && [ "$(cat "$SEARCH/addresses.md5" 2>/dev/null)" = "$expected" ]; then
     log "addresses: the published dump is the one already installed"; touch "$db"; result addresses ok; return 0
   fi
 
   running addresses yes
-  if [ "$(free_kb)" -lt 6291456 ]; then
-    failed addresses "not enough space (6 GB free needed while building)"; return 1
+  # building takes about ten times the compressed dump in temporary files (Italy: 6 GB), at least 6 GB
+  needed=$(( $(remote_size "$ADDRESS_DUMP_URL") * 10 / 1024 ))
+  [ "$needed" -ge 6291456 ] || needed=6291456
+  if [ "$(free_kb)" -lt "$needed" ]; then
+    failed addresses "not enough space ($(( needed / 1048576 )) GB free needed while building)"; return 1
   fi
   # If an earlier attempt stopped after the download (for example because of a reboot), the dump
   # already downloaded and intact is reused without downloading it again.
@@ -245,7 +269,8 @@ do_addresses() {
   log "addresses: building the index (on a Pi 3 this can take more than an hour)"
   rm -f "$db.new" "$db.new-journal"
   mkdir -p "$SEARCH/tmp"
-  zstd -dc "$dump" | SQLITE_TMPDIR="$SEARCH/tmp" nice -n 15 python3 "$LIB/build-search-index.py" --out "$db.new"
+  zstd -dc "$dump" | SQLITE_TMPDIR="$SEARCH/tmp" nice -n 15 python3 "$LIB/build-search-index.py" --out "$db.new" \
+    --languages "$ADDRESS_LANGUAGES"
   rc=${PIPESTATUS[1]}
   rm -rf "$SEARCH/tmp"
   if [ "$rc" -ne 0 ] || [ ! -s "$db.new" ]; then
@@ -259,6 +284,7 @@ do_addresses() {
   mv -f "$db.new" "$db"
   mv -f "$SEARCH/addresses.date.new" "$SEARCH/addresses.date" 2>/dev/null || true
   echo "$expected" > "$SEARCH/addresses.md5"
+  echo "$source" > "$SEARCH/addresses.source"
   rm -f "$dump"
   # as above: starts the first time too, unless the maps are switched off from the hub
   systemctl restart hub-search.service 2>/dev/null || true
@@ -332,19 +358,24 @@ PY
 # Sourced by .github/scripts/check-sources.sh for the settings and functions above: nothing below runs then.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
 
-WHAT="${1:-all}"
-# Italian names from version 1.x: pi-setup's monthly-update.sh may still call "hub-update.sh tutto".
+usage() { echo "Usage: sudo hub-update.sh [all | wiki maps addresses (one or more) | estimate-maps [BOX] | status | check-version]" >&2; exit 2; }
+english() {   # Italian names from version 1.x: pi-setup's monthly-update.sh may still call "hub-update.sh tutto"
+  case "$1" in tutto) echo all ;; mappe) echo maps ;; indirizzi) echo addresses ;; stato) echo status ;;
+               stima-mappe) echo estimate-maps ;; *) echo "$1" ;; esac
+}
+WHAT=$(english "${1:-all}")
+PARTS=" "
 case "$WHAT" in
-  tutto) WHAT=all ;; mappe) WHAT=maps ;; indirizzi) WHAT=addresses ;; stato) WHAT=status ;; stima-mappe) WHAT=estimate-maps ;;
-esac
-case "$WHAT" in
-  all|wiki|maps|addresses|status|estimate-maps|check-version) ;;
-  *) echo "Usage: sudo hub-update.sh [all|wiki|maps|addresses|estimate-maps|status|check-version]" >&2; exit 2 ;;
+  status|estimate-maps|check-version) ;;
+  *) for word in "${@:-all}"; do
+       word=$(english "$word")
+       case "$word" in all|wiki|maps|addresses) PARTS+="$word " ;; *) usage ;; esac
+     done ;;
 esac
 [ "$(id -u)" -eq 0 ] || { echo "Run it with sudo." >&2; exit 1; }
 mkdir -p "$ZIM" "$MAPS" "$SEARCH" "$STATE"
 
-if [ "$WHAT" = estimate-maps ]; then do_estimate_maps; exit $?; fi
+if [ "$WHAT" = estimate-maps ]; then do_estimate_maps "${2:-}"; exit $?; fi
 if [ "$WHAT" = status ]; then write_status; exit 0; fi
 if [ "$WHAT" = check-version ]; then do_check_version; exit 0; fi
 
@@ -352,7 +383,7 @@ if [ "$WHAT" = check-version ]; then do_check_version; exit 0; fi
 lock() { exec {fd}>"/run/hub-update-$1.lock"; flock -n "$fd"; }
 rc=0
 for part in wiki maps addresses; do
-  [ "$WHAT" = all ] || [ "$WHAT" = "$part" ] || continue
+  [[ $PARTS == *" all "* || $PARTS == *" $part "* ]] || continue
   if ! lock "$part"; then log "$part: another update is already running, skipping"; continue; fi
   log "===== $part: start"
   "do_$part" || rc=1

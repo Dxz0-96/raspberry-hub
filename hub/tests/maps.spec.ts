@@ -19,8 +19,14 @@ test.describe("Maps", () => {
     const box = await canvas.boundingBox();
     expect(box?.width).toBeGreaterThan(300);
     expect(box?.height).toBeGreaterThan(300);
-    // the address remembers the position: it starts from the whole of Italy
-    await expect.poll(() => position(page.url())?.zoom ?? 99).toBeLessThan(7);
+    // it opens on the area of the downloaded map, read from its header (the fixture: central Rome), and the
+    // address remembers the position
+    await expect
+      .poll(() => {
+        const here = position(page.url());
+        return Boolean(here && here.lat > 41.89 && here.lat < 41.905 && here.lon > 12.47 && here.lon < 12.49 && here.zoom > 12);
+      })
+      .toBe(true);
     await expect(page.locator(".maplibregl-ctrl-attrib")).toContainText("OpenStreetMap");
   });
 

@@ -157,16 +157,36 @@ def migrate_conf(path=None):
     log(f"{path} rewritten with the new setting names (old file kept as {path}.1x)")
 
 
+def map_country(values):
+    """MAP_COUNTRY and ADDRESS_LANGUAGES for a hub.conf older than them (2.2): the country whose address dump the
+    file already downloads (Italy, unless it was changed by hand). A dump that is in no country of countries.json
+    stays a choice of its own: MAP_COUNTRY empty."""
+    try:
+        with open(os.path.join(HERE, "countries.json"), encoding="utf-8") as f:
+            countries = json.load(f)["countries"]
+    except (OSError, ValueError, KeyError):
+        return {}
+    url = values.get("ADDRESS_DUMP_URL", "")
+    for country in countries:
+        folder = "/" + country["addresses"].rsplit("/", 1)[0] + "/"
+        if url.endswith("/" + country["addresses"]) or folder in url:
+            return {"MAP_COUNTRY": country["code"], "ADDRESS_LANGUAGES": country["address_languages"]}
+    return {"MAP_COUNTRY": "", "ADDRESS_LANGUAGES": ""}
+
+
 def add_new_conf_keys(path=None):
     """Adds to /etc/hub.conf the settings of the template it does not have yet (a newer version brought them),
-    each with its comment, at the end. The values already there are never touched."""
+    each with its comment, at the end. The values already there are never touched. Most new settings get the
+    default of the template; MAP_COUNTRY and ADDRESS_LANGUAGES follow what the file already downloads."""
     path = path or P("/etc/hub.conf")
     try:
         old = open(path, encoding="utf-8").read()
         template = open(os.path.join(HERE, "hub.conf"), encoding="utf-8").read()
     except OSError:
         return
-    have = set(re.findall(r"^([A-Z_]+)=", old, re.M))
+    values = dict(re.findall(r"^([A-Z_]+)=(.*)$", old, re.M))
+    have = set(values)
+    inferred = map_country(values) if "MAP_COUNTRY" not in have else {}
     blocks, comment = [], []
     for line in template.splitlines():
         key = re.match(r"^([A-Z_]+)=", line)
@@ -174,6 +194,8 @@ def add_new_conf_keys(path=None):
             comment.append(line)
             continue
         if key and key.group(1) not in have:
+            if key.group(1) in inferred:
+                line = f"{key.group(1)}={inferred[key.group(1)]}"
             blocks.append("\n".join([*comment, line]))
         comment = []
     if not blocks:

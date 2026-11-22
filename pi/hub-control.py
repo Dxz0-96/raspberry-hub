@@ -96,6 +96,14 @@ UNSAFE_HEADER = re.compile(r"[\x00-\x1f\x7f]")
 VALID_URL = re.compile(r"^(https?://[^\s<>\"'\\]{3,280}|/[^\s<>\"'\\]{0,280})$")
 
 
+def time_zone():
+    """The time zone of the Raspberry Pi ("Europe/Rome"), so that the hub writes dates as they are where it is;
+    None when it cannot be told. Only characters of IANA names get through: the browser receives it."""
+    target = os.path.realpath("/etc/localtime")
+    zone = target.split("/zoneinfo/", 1)[1] if "/zoneinfo/" in target else read_text("/etc/timezone").strip()
+    return zone if re.fullmatch(r"[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*", zone or "") else None
+
+
 def read_text(path, default=""):
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
@@ -350,6 +358,7 @@ class Monitor(threading.Thread):
             "power": power,
             "check": check,
             "uptime": round(float((read_text("/proc/uptime").split() or ["0"])[0])),
+            "timezone": time_zone(),
             "processes": processes, "alerts": alerts,
         }
         mem_percent = round(100.0 * mem_used / mem_total, 1) if mem_total else 0.0

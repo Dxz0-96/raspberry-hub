@@ -67,6 +67,7 @@ export function readings({ started, disk = "sd", alerts = [] }) {
       ? { time: new Date(started).toISOString(), failed: 2, failures: ["caddy running", "hub home page"] }
       : { time: new Date(started).toISOString(), failed: 0, failures: [] },
     uptime: 166738 + Math.round((Date.now() - started) / 1000),
+    timezone: "Europe/Rome",
     processes: [{ name: "pihole-FTL", cpu: 3.1 }, { name: "kiwix-serve", cpu: 1.4 }, { name: "caddy", cpu: 0.6 }, { name: "unbound", cpu: 0.3 }, { name: "python3", cpu: 0.1 }],
     alerts,
   };

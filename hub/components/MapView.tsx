@@ -4,29 +4,49 @@ import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } f
 import Link from "next/link";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Protocol } from "pmtiles";
+import { PMTiles, Protocol } from "pmtiles";
 import { language_script_pairs, layers, namedFlavor } from "@protomaps/basemaps";
 import { ChevronLeft, Search, X } from "lucide-react";
-import { BASE, DEMO, PREFIX, searchAddresses } from "@/lib/hub";
+import { BASE, PREFIX, searchAddresses } from "@/lib/hub";
 import { useI18n, type Locale } from "@/lib/i18n";
 import type { Messages } from "@/lib/messages/en";
 import { useTheme } from "@/lib/theme";
 import type { SearchResult } from "@/lib/types";
 
-// The default content is a map of Italy (see MAP_BBOX in pi/hub.conf): start there and stay around it. The demo
-// has only central Rome (tests/fixtures/rome.pmtiles).
-const START: [number, number] = DEMO ? [12.4829, 41.8933] : [12.6, 42.4];
-const START_ZOOM = DEMO ? 13 : 5.2;
-const BOUNDS: [[number, number], [number, number]] = [[3.5, 33.5], [21.5, 49.0]];
+type Box = [[number, number], [number, number]];
+/** How far the map can be moved beyond the downloaded area, in degrees: enough to see what is around it, and the
+ *  places of a search near the border */
+const MARGIN = 4;
 
-let prepared = false;
+let protocol: Protocol | null = null;
 
 /** Once per page: where the MapLibre worker is (the build emits it as a file of the site) and the pmtiles:// protocol. */
-function prepare() {
-  if (prepared) return;
-  maplibregl.setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
-  maplibregl.addProtocol("pmtiles", new Protocol().tile);
-  prepared = true;
+function prepare(): Protocol {
+  if (!protocol) {
+    maplibregl.setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
+    protocol = new Protocol();
+    maplibregl.addProtocol("pmtiles", protocol.tile);
+  }
+  return protocol;
+}
+
+/** The area of the downloaded map, from the header of the PMTiles file (pmtiles extract writes the box asked for
+ *  in MAP_BBOX): the map opens on it, whatever the country. null if the header says nothing usable. */
+async function downloadedArea(archive: PMTiles): Promise<Box | null> {
+  try {
+    const { minLon, minLat, maxLon, maxLat } = await archive.getHeader();
+    const inside = (lon: number, lat: number) => Math.abs(lon) <= 180 && Math.abs(lat) <= 90;
+    if (minLon < maxLon && minLat < maxLat && inside(minLon, minLat) && inside(maxLon, maxLat)) {
+      return [[minLon, minLat], [maxLon, maxLat]];
+    }
+  } catch {
+    // the map below still tries, and says what is wrong
+  }
+  return null;
+}
+
+function aroundArea([[west, south], [east, north]]: Box): Box {
+  return [[Math.max(-180, west - MARGIN), Math.max(-85, south - MARGIN)], [Math.min(180, east + MARGIN), Math.min(85, north + MARGIN)]];
 }
 
 function tilesUrl(): string {
@@ -243,7 +263,10 @@ export default function MapView() {
         return;
       }
       if (!container.current) return;
-      prepare();
+      const archive = new PMTiles(tilesUrl());
+      prepare().add(archive);
+      const area = await downloadedArea(archive);
+      if (cancelled || !container.current) return;
       upgradeLegacyHash();
       const { dark: startDark, locale: startLocale, t: texts } = initial.current;
       let view: maplibregl.Map;
@@ -251,11 +274,10 @@ export default function MapView() {
         view = new maplibregl.Map({
           container: container.current,
           style: mapStyle(startDark, startLocale),
-          center: START,
-          zoom: START_ZOOM,
-          minZoom: 4,
+          // the whole downloaded area, unless the address already has a position (#position=...)
+          ...(area ? { bounds: area, fitBoundsOptions: { padding: 24 }, maxBounds: aroundArea(area) } : { center: [0, 20], zoom: 1 }),
+          minZoom: area ? 4 : 0,
           maxZoom: 19,
-          maxBounds: BOUNDS,
           // the position stays in the address (#position=zoom/lat/lon): reloading the page keeps it
           hash: "position",
           attributionControl: { compact: true },
