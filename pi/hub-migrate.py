@@ -15,6 +15,7 @@ are added to /etc/hub.conf with their default, without touching the values alrea
 
 HUB_MIGRATE_ROOT=/some/folder runs it on a copy of the file system instead of / (used by the tests).
 """
+import hashlib
 import json
 import os
 import re
@@ -89,6 +90,39 @@ def rewrite_json(path, convert):
         f.write("\n")
         f.truncate()
     log(f"{path} converted")
+
+
+# --------------------------------------------------------------------------- icons
+# The icons of the services shipped with a new install, as earlier versions installed them in /srv/hub/icons
+# (sha256 of the file with LF line endings). hub-install.sh never overwrites an icon that is there, so these are
+# replaced here with the ones of this version: the official logos, and a new icon for the network monitor. An
+# icon that is not one of these (changed by hand) stays.
+OLD_ICONS = {
+    "pihole.svg": {"6f664647081ff6173cfc9ba5a747a6f2ea7d3f3189ed383460bae2809acf70bd"},
+    "wikipedia.svg": {"9fe0c4c201074dc195b51db9419a274646ace357b403c797e0986f61ad8103c0"},
+    "maps.svg": {"575ec7e00fdb295084269ff269d969f14872bbe298cd39f2f4041c4ff0bd5807",
+                 "09692351fa0d1ce061ae042f615e425f99dcd07f4a34cfc42ba582a2a8dc63a8"},    # mappe.svg of 1.x
+    "netmon.svg": {"06206c4ff809be79b48b29334dbaec6c0d3513da604d65654d74837272a4ce30",
+                   "d2cabc2d02b02cfaae867013d549875a86c4adbdfd86a774888b0d39b778dda7"},   # 1.x, in Italian
+}
+
+
+def refresh_shipped_icons():
+    for name, old in OLD_ICONS.items():
+        path = os.path.join(HUB_DIR, "icons", name)
+        try:
+            with open(path, "rb") as f:
+                current = f.read()
+            with open(os.path.join(HERE, "icons", name), "rb") as f:
+                new = f.read()
+        except OSError:
+            continue
+        if hashlib.sha256(current.replace(b"\r\n", b"\n")).hexdigest() not in old:
+            continue
+        with open(path, "r+b") as f:      # in place: owner and mode stay
+            f.write(new)
+            f.truncate()
+        log(f"{path}: replaced with the icon of this version")
 
 
 # --------------------------------------------------------------------------- services.json
@@ -317,6 +351,7 @@ def main():
     # files the hub serves and edits
     move(os.path.join(HUB_DIR, "icone"), os.path.join(HUB_DIR, "icons"))
     move(os.path.join(HUB_DIR, "icons", "mappe.svg"), os.path.join(HUB_DIR, "icons", "maps.svg"))
+    refresh_shipped_icons()
     services = os.path.join(HUB_DIR, "config", "services.json")
     move(os.path.join(HUB_DIR, "config", "servizi.json"), services)
     if os.path.exists(services):
