@@ -4,14 +4,14 @@
 // over. Never part of the website installed on a Raspberry Pi.
 import { NAS, contentStatus, dns, makeHistory, makeMonth, readings, search, serviceStates } from "@/dev/pretend-pi.mjs";
 import { ApiError, DEMO_PASSWORD, DEMO_USER, PREFIX } from "./hub";
-import type { Service } from "./types";
+import type { ContentStatus, Service, SystemInfo } from "./types";
 
 const VERSION = process.env.NEXT_PUBLIC_VERSION ?? "";
 /** When the pretend Raspberry Pi started: the restart button sets it again */
 let started = Date.now();
 const history = makeHistory();
 const month = makeMonth();
-// the demo has no Wikipedia: switched on, it says the content is not downloaded yet
+// the demo has no Wikipedia: switched on, it says the content is not downloaded yet (and it takes no space)
 const off = new Set(["wikipedia"]);
 const notDownloaded = new Set(["wikipedia"]);
 let blocking = true;
@@ -39,6 +39,20 @@ async function list(): Promise<Service[]> {
 
 const states = async () => serviceStates(await list(), { off, blocking, notDownloaded });
 
+/** The hardware readings, without the space of the Wikipedia the demo does not have. */
+function system(): SystemInfo {
+  const data = readings({ started });
+  const used = data.disk.used - data.disk.content.wikipedia;
+  return { ...data, disk: { ...data.disk, used, percent_full: Math.round((used / data.disk.total) * 1000) / 10,
+    content: { ...data.disk.content, wikipedia: 0 } } };
+}
+
+/** The content status, with no Wikipedia edition installed: what hub-update.sh writes before the first download. */
+function content(): ContentStatus {
+  const status = contentStatus(null);
+  return { ...status, wikipedia: { language: "it", edition: null, bytes: null, result: null, running: false, editions: [] } };
+}
+
 function fail(status: number, code: string, message: string, data: Record<string, unknown> = {}): never {
   throw new ApiError(status, code, message, { error: code, message, ...data });
 }
@@ -59,12 +73,12 @@ export async function demoApi<T>(path: string, options: { method?: string; body?
 
   if (method === "GET") {
     if (route === "/services.json") return answer({ services: await list() });
-    if (route === "/status.json") return answer(contentStatus(null));
+    if (route === "/status.json") return answer(content());
     if (route === "/control/status") {
       return answer({ time: Math.round(Date.now() / 1000), authenticated: loggedIn, user: loggedIn ? DEMO_USER : null,
         configured: true, version: VERSION, services: await states(), dns: dns() });
     }
-    if (route === "/control/system") return answer(readings({ started }));
+    if (route === "/control/system") return answer(system());
     if (route === "/control/system/history") {
       if (new URLSearchParams(query).get("period") === "month") return answer({ month: { step: 3600, points: month } });
       return answer({ recent: { step: 5, points: history.recent }, day: { step: 60, points: history.day }, power: { events: history.power } });

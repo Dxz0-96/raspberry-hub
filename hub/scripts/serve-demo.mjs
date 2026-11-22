@@ -1,5 +1,6 @@
 // Serves the demo (out-demo/, from npm run demo) the way GitHub Pages does: under /raspberry-hub/, with range
-// requests (the map reads the tiles in pieces) and 404.html for missing pages. For npm run test:demo, and to look
+// requests (the map reads the tiles in pieces), JavaScript types for .mjs (the map worker is a module) and 404.html
+// for missing pages. For npm run test:demo, and to look
 // at the demo on the PC: node scripts/serve-demo.mjs, then http://localhost:8796/raspberry-hub/
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
@@ -10,7 +11,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "out-demo");
 const BASE = process.env.HUB_BASE_PATH ?? "/raspberry-hub";
 const PORT = Number(process.env.PORT ?? 8796);
 const TYPES = {
-  ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
+  ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
+  ".json": "application/json",
   ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".woff": "font/woff", ".txt": "text/plain; charset=utf-8",
   ".pbf": "application/x-protobuf", ".pmtiles": "application/octet-stream",
 };
