@@ -15,6 +15,7 @@ Login required:
     POST   /control/upgrade             {version}   starts the upgrade to the latest release (hub-upgrade@.service)
     POST   /control/rollback            {version}   goes back to the version kept before the last upgrade
                                                     (hub-rollback.service)
+    POST   /control/reboot              {}          restarts the Raspberry Pi (hub-reboot.service)
     POST   /control/services            {name, description, url, icon?}   adds a link
     POST   /control/services/<id>       same as above, edits a link added from the hub
     DELETE /control/services/<id>       removes a link added from the hub
@@ -548,6 +549,17 @@ def start_rollback(version):
     return 202, "", ""
 
 
+def start_reboot():
+    """(HTTP status, code, English message). The restart button: never in the middle of an upgrade, which would
+    leave a version half installed. A content update may be running: it resumes, or starts again, later."""
+    if upgrade_running(read_json(UPGRADE_FILE)):
+        return 409, "upgrade_running", "An update is already running."
+    ok, _ = run(["systemctl", "--no-ask-password", "--no-block", "start", "hub-reboot.service"], timeout=30)
+    if not ok:
+        return 502, "reboot_not_started", "The Raspberry Pi could not start restarting."
+    return 202, "", ""
+
+
 def upgrade_running(progress):
     """An upgrade that has not ended and wrote in the last 2 hours (a reboot in the middle ends it)."""
     if not progress or progress.get("step") in (None, "done", "failed"):
@@ -884,6 +896,11 @@ class DnsStats(threading.Thread):
         self.sid = None
         self.sid = self._call("POST", "/auth", {"password": password})["session"]["sid"]
 
+    # Pi-hole v6 has a few API sessions ("seats", webserver.api.max_sessions) that expire only after 30 minutes
+    # without use: a session dropped without logging out keeps its seat. Opening a new one at every error filled them
+    # all in a few minutes, and then nobody could log in to Pi-hole, its own dashboard included, until they expired.
+    # So the session is kept across errors and replaced only when Pi-hole says it is no longer valid (401).
+
     def _summary(self):
         if not self.sid:
             self._login()
@@ -921,7 +938,7 @@ class DnsStats(threading.Thread):
                 self._refresh()
             except Exception as error:             # Pi-hole stopped or restarting: retry on the next round
                 print(f"dns: {error!r}", flush=True)
-                self.sid = None
+                # the session stays: if Pi-hole restarted it is gone, and the next call gets a 401 and logs in again
                 with self.lock:
                     self.data = None
             time.sleep(self.STEP)
@@ -1028,6 +1045,9 @@ class Sessions:
                                                           "renewed": round(now)}
                 self._save()
                 return token, None
+            if len(self.failures) > 200:
+                # one entry per address that ever typed a wrong password: the locked ones stay
+                self.failures = {a: e for a, e in self.failures.items() if e[1] > time.time()}
             entry = self.failures.setdefault(address, [0, 0.0])
             if entry[1] and entry[1] <= time.time():
                 entry[0], entry[1] = 0, 0.0
@@ -1233,6 +1253,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if parts == ["rollback"]:
             status, code, message = start_rollback(data.get("version"))
+            if code:
+                return self.fail(status, code, message)
+            return self.reply(202, {"ok": True})
+
+        if parts == ["reboot"]:
+            status, code, message = start_reboot()
             if code:
                 return self.fail(status, code, message)
             return self.reply(202, {"ok": True})

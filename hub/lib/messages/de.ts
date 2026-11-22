@@ -35,6 +35,7 @@ export const de: Messages = {
     logIn: "Anmelden",
     changePassword: "Passwort ändern",
     logOut: "Abmelden",
+    restart: "Raspberry Pi neu starten",
   },
   password: {
     title: "Passwort ändern",
@@ -165,6 +166,7 @@ export const de: Messages = {
     content_update_running: "Wikipedia, die Karten oder die Adressen werden gerade aktualisiert: Versuche es danach noch einmal.",
     no_space: "Auf dem Raspberry Pi ist nicht genug Platz für das Update frei.",
     upgrade_not_started: "Der Raspberry Pi konnte das Update nicht starten.",
+    reboot_not_started: "Der Raspberry Pi konnte den Neustart nicht einleiten.",
     no_previous: "Es gibt keine vorherige Version, zu der zurückgekehrt werden kann.",
     rollback_not_started: "Der Raspberry Pi konnte die Rückkehr zur vorherigen Version nicht starten.",
   },
@@ -296,6 +298,16 @@ export const de: Messages = {
       no_admin: "Der Raspberry Pi kann nicht erkennen, welchem Benutzer der Hub gehört.",
       internal_error: "Auf dem Raspberry Pi ist etwas schiefgelaufen.",
     },
+  },
+  restart: {
+    title: "Raspberry Pi neu starten",
+    body: "Der Raspberry Pi startet neu, wie mit sudo reboot. Für ein bis zwei Minuten stehen der Hub, Pi-hole und alle Dienste still: Die Geräte zu Hause erreichen das Internet währenddessen vielleicht nicht.",
+    contentRunning:
+      "Wikipedia, die Karten oder die Adressen werden gerade heruntergeladen: Der Neustart unterbricht das, und es geht beim nächsten Inhaltsupdate weiter (Wikipedia dort, wo es aufgehört hat).",
+    confirm: "Neu starten",
+    restarting: "Der Raspberry Pi startet neu: Der Hub antwortet in ein bis zwei Minuten wieder.",
+    back: "Der Raspberry Pi wurde neu gestartet und der Hub antwortet wieder.",
+    failed: "Der Neustart hat nicht begonnen. Versuche es noch einmal.",
   },
   demo: {
     label: "Demo",

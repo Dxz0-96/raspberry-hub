@@ -1,0 +1,10 @@
+[Unit]
+Description=raspberry-hub: restart the Raspberry Pi, started with the restart button of the hub
+# hub-control (user hubctl) may only start it (polkit rule written by hub-service), after a login and a
+# confirmation in the hub. Like sudo reboot.
+
+[Service]
+Type=oneshot
+# a few seconds first, so that the answer of hub-control reaches the browser before the network goes down
+ExecStartPre=/usr/bin/sleep 3
+ExecStart=/usr/bin/systemctl --no-block reboot

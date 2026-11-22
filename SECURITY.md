@@ -25,11 +25,13 @@ released, and the advisory published with credit to you (unless you prefer other
 The hub is meant for a home network. It assumes the local network is not hostile, but it still defends the
 parts that change the system:
 
-- switches, password changes and added services require a login (scrypt password hash, lockout after 5
-  wrong attempts, `HttpOnly` + `SameSite=Strict` + `Secure` session cookie, only token hashes stored);
+- switches, password changes, added services, updates and restarting the Raspberry Pi require a login (scrypt
+  password hash, lockout after 5 wrong attempts, `HttpOnly` + `SameSite=Strict` + `Secure` session cookie, only
+  token hashes stored);
 - write requests must carry the `X-Hub: 1` header and a same-origin `Origin`;
 - `hub-control.py` runs as an unprivileged user and can start or stop only the systemd units listed in
-  `/etc/hub-control/allowed-units`, enforced by a polkit rule;
+  `/etc/hub-control/allowed-units`, plus start the units of the update, the rollback and the restart
+  (`hub-upgrade@X.Y.Z`, `hub-rollback`, `hub-reboot`), enforced by a polkit rule;
 - uploaded icons are checked by content type, size-limited and served with a sandboxing Content Security Policy;
 - the pages of the hub cannot be shown inside another site (`frame-ancestors 'self'` and
   `X-Frame-Options: SAMEORIGIN`, against clickjacking) and their Content Security Policy lets them load and send

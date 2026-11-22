@@ -34,6 +34,7 @@ export const es: Messages = {
     logIn: "Iniciar sesión",
     changePassword: "Cambiar contraseña",
     logOut: "Cerrar sesión",
+    restart: "Reiniciar la Raspberry Pi",
   },
   password: {
     title: "Cambiar contraseña",
@@ -165,6 +166,7 @@ export const es: Messages = {
       "Wikipedia, los mapas o las direcciones se están actualizando: inténtalo de nuevo cuando terminen.",
     no_space: "No hay espacio libre suficiente en la Raspberry Pi para la actualización.",
     upgrade_not_started: "La Raspberry Pi no ha podido iniciar la actualización.",
+    reboot_not_started: "La Raspberry Pi no ha podido empezar a reiniciarse.",
     no_previous: "No hay ninguna versión anterior a la que volver.",
     rollback_not_started: "La Raspberry Pi no ha podido empezar a volver a la versión anterior.",
   },
@@ -297,6 +299,16 @@ export const es: Messages = {
       no_admin: "La Raspberry Pi no sabe a qué usuario pertenece el hub.",
       internal_error: "Algo ha fallado en la Raspberry Pi.",
     },
+  },
+  restart: {
+    title: "Reiniciar la Raspberry Pi",
+    body: "La Raspberry Pi se reinicia, como con sudo reboot. Durante un par de minutos el hub, Pi-hole y todos los servicios se detienen: mientras tanto, los dispositivos de casa podrían no llegar a internet.",
+    contentRunning:
+      "Se están descargando Wikipedia, los mapas o las direcciones: el reinicio lo interrumpe, y sigue en la próxima actualización de contenidos (Wikipedia desde donde se quedó).",
+    confirm: "Reiniciar",
+    restarting: "La Raspberry Pi se está reiniciando: el hub responde de nuevo en un par de minutos.",
+    back: "La Raspberry Pi se ha reiniciado y el hub responde de nuevo.",
+    failed: "El reinicio no ha empezado. Inténtalo de nuevo.",
   },
   demo: {
     label: "Demo",

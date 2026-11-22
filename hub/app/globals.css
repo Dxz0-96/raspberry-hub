@@ -355,6 +355,13 @@ input {
   position: relative;
 }
 
+/* the restart button: an icon, with its name for screen readers and as a tooltip. When the header wraps (phones)
+   it stays next to the theme picker instead of floating in the middle. */
+.restart-button {
+  margin-left: auto;
+  padding: 0 12px;
+}
+
 .menu {
   position: absolute;
   z-index: 20;

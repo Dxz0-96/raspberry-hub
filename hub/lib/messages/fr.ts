@@ -36,6 +36,7 @@ export const fr: Messages = {
     logIn: "Se connecter",
     changePassword: "Changer le mot de passe",
     logOut: "Se déconnecter",
+    restart: "Redémarrer le Raspberry Pi",
   },
   password: {
     title: "Changer le mot de passe",
@@ -168,6 +169,7 @@ export const fr: Messages = {
       "Wikipédia, les cartes ou les adresses sont en cours de mise à jour : réessayez quand ce sera terminé.",
     no_space: "Pas assez d'espace libre sur le Raspberry Pi pour la mise à jour.",
     upgrade_not_started: "Le Raspberry Pi n'a pas pu lancer la mise à jour.",
+    reboot_not_started: "Le Raspberry Pi n'a pas pu lancer le redémarrage.",
     no_previous: "Il n'y a pas de version précédente à laquelle revenir.",
     rollback_not_started: "Le Raspberry Pi n'a pas pu lancer le retour à la version précédente.",
   },
@@ -301,6 +303,16 @@ export const fr: Messages = {
       no_admin: "Le Raspberry Pi ne sait pas à quel utilisateur appartient le hub.",
       internal_error: "Un problème est survenu sur le Raspberry Pi.",
     },
+  },
+  restart: {
+    title: "Redémarrer le Raspberry Pi",
+    body: "Le Raspberry Pi redémarre, comme avec sudo reboot. Pendant une ou deux minutes, le hub, Pi-hole et tous les services s'arrêtent : en attendant, les appareils de la maison risquent de ne plus accéder à internet.",
+    contentRunning:
+      "Wikipédia, les cartes ou les adresses sont en cours de téléchargement : le redémarrage l'interrompt, et il reprend à la prochaine mise à jour des contenus (Wikipédia là où elle s'était arrêtée).",
+    confirm: "Redémarrer",
+    restarting: "Le Raspberry Pi redémarre : le hub répond de nouveau dans une ou deux minutes.",
+    back: "Le Raspberry Pi a redémarré et le hub répond de nouveau.",
+    failed: "Le redémarrage n'a pas commencé. Réessayez.",
   },
   demo: {
     label: "Démo",

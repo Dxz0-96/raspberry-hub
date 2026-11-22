@@ -31,6 +31,7 @@ export const it: Messages = {
     logIn: "Accedi",
     changePassword: "Cambia password",
     logOut: "Esci",
+    restart: "Riavvia il Raspberry",
   },
   password: {
     title: "Cambia password",
@@ -160,6 +161,7 @@ export const it: Messages = {
     content_update_running: "Wikipedia, le mappe o gli indirizzi si stanno aggiornando: riprova quando hanno finito.",
     no_space: "Sul Raspberry non c'è abbastanza spazio libero per l'aggiornamento.",
     upgrade_not_started: "Il Raspberry non è riuscito ad avviare l'aggiornamento.",
+    reboot_not_started: "Il Raspberry non è riuscito ad avviare il riavvio.",
     no_previous: "Non c'è una versione precedente a cui tornare.",
     rollback_not_started: "Il Raspberry non è riuscito ad avviare il ritorno alla versione precedente.",
   },
@@ -291,6 +293,16 @@ export const it: Messages = {
       no_admin: "Il Raspberry non riesce a capire a quale utente appartiene l'hub.",
       internal_error: "Qualcosa non ha funzionato sul Raspberry.",
     },
+  },
+  restart: {
+    title: "Riavvia il Raspberry",
+    body: "Il Raspberry si riavvia, come con sudo reboot. Per un paio di minuti l'hub, Pi-hole e tutti i servizi si fermano: nel frattempo i dispositivi di casa potrebbero non raggiungere internet.",
+    contentRunning:
+      "Si stanno scaricando Wikipedia, le mappe o gli indirizzi: il riavvio li interrompe, e riprendono con il prossimo aggiornamento dei contenuti (Wikipedia da dove si era fermata).",
+    confirm: "Riavvia",
+    restarting: "Il Raspberry si sta riavviando: l'hub risponde di nuovo tra un paio di minuti.",
+    back: "Il Raspberry si è riavviato e l'hub risponde di nuovo.",
+    failed: "Il riavvio non è partito. Riprova.",
   },
   demo: {
     label: "Demo",

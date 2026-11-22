@@ -7,7 +7,8 @@ import { ApiError, DEMO_PASSWORD, DEMO_USER, PREFIX } from "./hub";
 import type { Service } from "./types";
 
 const VERSION = process.env.NEXT_PUBLIC_VERSION ?? "";
-const started = Date.now();
+/** When the pretend Raspberry Pi started: the restart button sets it again */
+let started = Date.now();
 const history = makeHistory();
 const month = makeMonth();
 // the demo has no Wikipedia: switched on, it says the content is not downloaded yet
@@ -93,6 +94,10 @@ export async function demoApi<T>(path: string, options: { method?: string; body?
   }
   if (route === "/control/upgrade") fail(409, "up_to_date", "This version is already installed.");
   if (route === "/control/rollback") fail(409, "no_previous", "There is no previous version to go back to.");
+  if (route === "/control/reboot") {
+    started = Date.now(); // a pretend restart: the uptime starts again
+    return answer({ ok: true });
+  }
   const toggle = /^\/control\/services\/([a-z0-9-]+)\/switch$/.exec(route);
   if (toggle) {
     if (toggle[1] === "pihole") blocking = Boolean(body.on);
