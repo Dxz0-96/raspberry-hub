@@ -8,6 +8,11 @@ privately: see [SECURITY.md](SECURITY.md).
 
 ## Ways to help
 
+- **Try it first**: the [live demo](https://dxz0-96.github.io/raspberry-hub/) is the hub of the latest release with a
+  made-up Raspberry Pi, nothing to install.
+- **Start small**: issues labelled [good first issue](https://github.com/Dxz0-96/raspberry-hub/labels/good%20first%20issue) need no Raspberry Pi (the
+  mock Raspberry Pi and the demo are enough) and say where to look. Comment on one to take it.
+- **See what is planned**: each [milestone](https://github.com/Dxz0-96/raspberry-hub/milestones) groups the issues of the next version.
 - **Report a bug** or **suggest a feature** with the [issue forms](https://github.com/Dxz0-96/raspberry-hub/issues/new/choose).
 - **Improve a translation**: all interface text is in `hub/lib/messages/` (see [Translations](#translations)).
 - **Send a pull request**: for anything bigger than a small fix, open an issue first so we can agree on the approach.
@@ -113,6 +118,12 @@ feat(pi)!: move the address index to a new schema
 ```
 
 You can check a message locally with `bash .github/scripts/check-commits.sh "feat(hub): ..."`.
+
+## Issues, labels and milestones
+
+The maintainer labels a new issue `good first issue` when it can be done without a Raspberry Pi and a newcomer can
+find the way from its description (which files, which tests), and puts the issues planned for the next minor
+version in its milestone. `accessibility` marks barriers for people with disabilities, which come first.
 
 ## Pull requests and reviews
 
