@@ -373,7 +373,7 @@ export const it: Messages = {
   },
   wikipedia: {
     searchLabel: "Cerca in Wikipedia",
-    placeholder: "Cerca una voce, per esempio Giuseppe Garibaldi",
+    placeholder: "Cerca una voce, per esempio Pizza",
     clear: "Cancella la ricerca",
     suggestions: "Suggerimenti",
     searchingTitles: "Cerco tra i titoli…",

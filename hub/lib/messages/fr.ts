@@ -384,7 +384,7 @@ export const fr: Messages = {
   },
   wikipedia: {
     searchLabel: "Rechercher dans Wikipédia",
-    placeholder: "Recherchez un article, par exemple Giuseppe Garibaldi",
+    placeholder: "Recherchez un article, par exemple Pizza",
     clear: "Effacer la recherche",
     suggestions: "Suggestions",
     searchingTitles: "Recherche dans les titres…",

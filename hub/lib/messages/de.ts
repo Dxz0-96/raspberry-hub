@@ -379,7 +379,7 @@ export const de: Messages = {
   },
   wikipedia: {
     searchLabel: "Wikipedia durchsuchen",
-    placeholder: "Suche einen Artikel, zum Beispiel Giuseppe Garibaldi",
+    placeholder: "Suche einen Artikel, zum Beispiel Pizza",
     clear: "Suche löschen",
     suggestions: "Vorschläge",
     searchingTitles: "Titel werden durchsucht…",
