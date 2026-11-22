@@ -741,6 +741,35 @@ class UpgradeFrom1x(unittest.TestCase):
         self.assertIn("nothing to migrate", self.migrate())
         self.assertEqual(self.read("/etc/hub.conf"), conf)
 
+    def test_the_icons_shipped_before_become_the_official_logos(self):
+        hub_migrate = load("hub_migrate_icons", "hub-migrate.py")
+        # pihole.svg as 2.2 installed it, here with Windows line endings
+        old = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pi-hole">\n'
+            '  <rect width="64" height="64" rx="14" fill="#1F4D2B"/>\n'
+            '  <path d="M32 11 50 17v14c0 11-7.5 18.5-18 22-10.5-3.5-18-11-18-22V17z" fill="#123019" stroke="#D9A941" '
+            'stroke-width="2.5" stroke-linejoin="round"/>\n'
+            '  <circle cx="32" cy="30" r="8.5" fill="none" stroke="#F3F5F1" stroke-width="2.5"/>\n'
+            '  <path d="m26 36 12-12" stroke="#F3F5F1" stroke-width="2.5" stroke-linecap="round"/>\n'
+            '</svg>\n'
+        )
+        self.assertIn(hashlib.sha256(old.encode()).hexdigest(), hub_migrate.OLD_ICONS["pihole.svg"])
+        os.makedirs(self.path("/srv/hub/icons"))
+        with open(self.path("/srv/hub/icons/pihole.svg"), "wb") as f:
+            f.write(old.replace("\n", "\r\n").encode())
+        self.write("/srv/hub/icons/wikipedia.svg", "<svg>changed by hand</svg>")
+
+        self.assertIn("pihole.svg: replaced with the icon of this version", self.migrate())
+        with open(os.path.join(PI, "icons", "pihole.svg"), encoding="utf-8") as f:
+            self.assertEqual(self.read("/srv/hub/icons/pihole.svg"), f.read())
+        self.assertEqual(self.read("/srv/hub/icons/wikipedia.svg"), "<svg>changed by hand</svg>")   # the user's stays
+        self.assertFalse(os.path.exists(self.path("/srv/hub/icons/maps.svg")))     # hub-install.sh copies it
+        self.assertIn("nothing to migrate", self.migrate())
+        # every icon of the list is shipped, and no old version is the new icon
+        for name, hashes in hub_migrate.OLD_ICONS.items():
+            with open(os.path.join(PI, "icons", name), "rb") as f:
+                self.assertNotIn(hashlib.sha256(f.read()).hexdigest(), hashes)
+
 
     def test_the_monthly_update_leaves_pi_setup(self):
         hub_migrate = load("hub_migrate_blocks", "hub-migrate.py")

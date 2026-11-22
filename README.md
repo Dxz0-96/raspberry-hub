@@ -449,3 +449,17 @@ Code: MIT license, see [LICENSE](LICENSE).
 Maps and addresses: © OpenStreetMap contributors, ODbL license, through Protomaps and the Photon/Nominatim
 dump by GraphHopper. Offline Wikipedia: Kiwix, text under CC BY-SA 4.0. Fonts: IBM Plex (SIL Open Font
 License) and Noto Sans for the map labels.
+
+Service icons (`pi/icons`): the official logos, on a white tile, used to refer to each project; raspberry-hub is
+not endorsed by them. Each file names its source in a comment.
+
+- Pi-hole: the Vortex logo from [pi-hole/graphics](https://github.com/pi-hole/graphics), © 2017 Pi-hole,
+  [MIT license](https://github.com/pi-hole/graphics/blob/master/LICENSE). Pi-hole and its logo are trademarks of
+  Pi-hole LLC.
+- Wikipedia: the [Wikipedia logo](https://commons.wikimedia.org/wiki/File:Wikipedia-logo-v2.svg), © Wikimedia
+  Foundation, [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), and so is `wikipedia.svg`.
+  Wikipedia and its logo are trademarks of the Wikimedia Foundation.
+- Maps: the [OpenStreetMap logo](https://commons.wikimedia.org/wiki/File:Openstreetmap_logo.svg),
+  [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), and so is `maps.svg`. OpenStreetMap and its
+  logo are trademarks of the OpenStreetMap Foundation.
+- Network monitor: drawn for this project, MIT license.
