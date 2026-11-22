@@ -45,7 +45,7 @@ PISETUP="$(dirname "$HERE")"                      # the pi-setup package (instal
 # the address of the Raspberry Pi on the home network: the first one of the main interface, unless given
 PI="${PI_IP:-$(hostname -I | awk '{print $1}')}"
 LIB=/usr/local/lib/raspberry-hub
-HUB_VERSION=2.2.1   # x-release-please-version (updated by release-please, do not edit by hand)
+HUB_VERSION=2.2.2   # x-release-please-version (updated by release-please, do not edit by hand)
 PIHOLE_PORT="127.0.0.1:8080"
 OFF_AT_FIRST_INSTALL="${OFF_AT_FIRST_INSTALL-wikipedia maps}"   # services that start switched off on a new install
 PMTILES_VERSION=1.31.2
