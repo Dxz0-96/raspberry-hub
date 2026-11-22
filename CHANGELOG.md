@@ -6,6 +6,33 @@ All notable changes to this project. From 2.0.0 on, entries are written by
 [Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
 [docs/upgrading.md](docs/upgrading.md).
 
+## [2.2.0](https://github.com/Dxz0-96/raspberry-hub/compare/v2.1.0...v2.2.0) (2026-11-22)
+
+
+### Features
+
+* **hub:** open the Wikipedia edition in the browser language when several are installed ([d0d2278](https://github.com/Dxz0-96/raspberry-hub/commit/d0d2278fa4f505fb1a4e690d57cdb42753a9e7ea))
+* **hub:** restart the Raspberry Pi from the header ([129f8de](https://github.com/Dxz0-96/raspberry-hub/commit/129f8dee577db3401629198a42b18a1bffaf21fc))
+* **hub:** Spanish, French and German, and the language always follows the browser ([#43](https://github.com/Dxz0-96/raspberry-hub/issues/43)) ([a46fb36](https://github.com/Dxz0-96/raspberry-hub/commit/a46fb3691b352e431863cfc4c49597d6cff5a513))
+* look after the Pi's health, and a live demo on GitHub Pages ([#37](https://github.com/Dxz0-96/raspberry-hub/issues/37)) ([e8a7603](https://github.com/Dxz0-96/raspberry-hub/commit/e8a7603d328649fdfee1a743a12eebc4a2cac089))
+* **pi:** choose the country of the map and of the address search during installation ([#45](https://github.com/Dxz0-96/raspberry-hub/issues/45)) ([95231fd](https://github.com/Dxz0-96/raspberry-hub/commit/95231fd86dfbd555ac7f523e467ccc3187104a04))
+* **pi:** choose the Wikipedia language and variant during installation ([d0d2278](https://github.com/Dxz0-96/raspberry-hub/commit/d0d2278fa4f505fb1a4e690d57cdb42753a9e7ea))
+* **pi:** install and run without the pi-setup package ([a0c5296](https://github.com/Dxz0-96/raspberry-hub/commit/a0c5296b670b2fdc6f3fa956eea9dd7e6b3c9a59))
+* **pi:** name AdGuard as the DNS resolver in DNS at home ([#41](https://github.com/Dxz0-96/raspberry-hub/issues/41)) ([c4c2044](https://github.com/Dxz0-96/raspberry-hub/commit/c4c2044204a9e3f07ca3b3954d57fe1ee3f7364b))
+* **pi:** roll back to the previous version ([a0c5296](https://github.com/Dxz0-96/raspberry-hub/commit/a0c5296b670b2fdc6f3fa956eea9dd7e6b3c9a59))
+
+
+### Bug Fixes
+
+* **pi:** forget at boot the markers of a content update that was killed ([129f8de](https://github.com/Dxz0-96/raspberry-hub/commit/129f8dee577db3401629198a42b18a1bffaf21fc))
+* **pi:** keep the Pi-hole API session across errors, so its few sessions do not run out ([129f8de](https://github.com/Dxz0-96/raspberry-hub/commit/129f8dee577db3401629198a42b18a1bffaf21fc))
+* **pi:** other sites cannot frame the hub, and its pages get a Content Security Policy ([#44](https://github.com/Dxz0-96/raspberry-hub/issues/44)) ([9263a1f](https://github.com/Dxz0-96/raspberry-hub/commit/9263a1f7cb9f41b98c3177fc3f884661cfd5aff5))
+
+
+### Documentation
+
+* point new contributors to the demo, the good first issues and the milestones ([#50](https://github.com/Dxz0-96/raspberry-hub/issues/50)) ([d9d5389](https://github.com/Dxz0-96/raspberry-hub/commit/d9d53895db12c64896d06afb04bf77be0ef71ca3)), closes [#28](https://github.com/Dxz0-96/raspberry-hub/issues/28)
+
 ## [2.1.0](https://github.com/Dxz0-96/raspberry-hub/compare/v2.0.1...v2.1.0) (2026-11-20)
 
 
