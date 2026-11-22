@@ -6,6 +6,14 @@ All notable changes to this project. From 2.0.0 on, entries are written by
 [Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
 [docs/upgrading.md](docs/upgrading.md).
 
+## [2.2.2](https://github.com/Dxz0-96/raspberry-hub/compare/v2.2.1...v2.2.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **ci:** refresh release artifact attestation ([#56](https://github.com/Dxz0-96/raspberry-hub/issues/56)) ([978fabb](https://github.com/Dxz0-96/raspberry-hub/commit/978fabb117a497fcd48684866a8e68138954d6be))
+* **hub:** official logos for the default services, and a new network monitor icon ([#58](https://github.com/Dxz0-96/raspberry-hub/issues/58)) ([9525d27](https://github.com/Dxz0-96/raspberry-hub/commit/9525d27e636984b25ce0823cfa0c6cf3a8dbe8a4)), closes [#55](https://github.com/Dxz0-96/raspberry-hub/issues/55)
+
 ## [2.2.1](https://github.com/Dxz0-96/raspberry-hub/compare/v2.2.0...v2.2.1) (2026-11-22)
 
 
