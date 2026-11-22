@@ -41,9 +41,9 @@ jobs:
       - name: Syntax
         run: |
           python -m py_compile pi/*.py pi/hub-service pi/hub-control-setpass
-          for f in pi/*.sh pi/hub-cert-sync; do bash -n "$f"; done
+          for f in pi/*.sh pi/hub-cert-sync pi/hub-cert pi/kiwix-start; do bash -n "$f"; done
       - name: ShellCheck
-        run: shellcheck --severity=warning pi/*.sh pi/hub-cert-sync .github/scripts/*.sh
+        run: shellcheck --severity=warning pi/*.sh pi/hub-cert-sync pi/hub-cert pi/kiwix-start .github/scripts/*.sh
       - name: Smoke tests (address index, upgrade from 1.x, hub-control API)
         run: python -m unittest discover -s pi/tests -v
 

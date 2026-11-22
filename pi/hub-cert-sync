@@ -1,18 +1,23 @@
 #!/bin/bash
-# Hands the HTTPS certificate issued by pihole-cert.sh to Caddy and makes it reload its configuration.
-# Run by hub-cert-sync.path every time /etc/pihole/tls.pem changes, and by hub-install.sh.
+# Hands the HTTPS certificate of the home CA to Caddy and makes it reload its configuration: the one issued by
+# pihole-cert.sh when the pi-setup package is installed, otherwise the one of hub-cert (/etc/hub-ca).
+# Run by hub-cert-sync.path every time the certificate changes, and by hub-install.sh.
 #   /etc/caddy/certs/tls.pem     server key + certificate (readable only by root and Caddy)
 #   /etc/caddy/public/ca.crt     public certificate of the home CA, downloadable from /ca.crt
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-SOURCE=/etc/pihole/tls.pem
+if [ -x /usr/local/sbin/pihole-cert.sh ] && [ -s /etc/pihole-ca/ca.crt ]; then
+  SOURCE=/etc/pihole/tls.pem; CA=/etc/pihole-ca/ca.crt
+else
+  SOURCE=/etc/hub-ca/tls.pem; CA=/etc/hub-ca/ca.crt
+fi
 [ -s "$SOURCE" ] || { echo "hub-cert-sync: $SOURCE not found" >&2; exit 1; }
 install -d -o root -g caddy -m 750 /etc/caddy/certs
 install -d -o root -g root -m 755 /etc/caddy/public
 install -o root -g caddy -m 640 "$SOURCE" /etc/caddy/certs/tls.pem.new
 mv -f /etc/caddy/certs/tls.pem.new /etc/caddy/certs/tls.pem
-if [ -s /etc/pihole-ca/ca.crt ]; then
-  install -o root -g root -m 644 /etc/pihole-ca/ca.crt /etc/caddy/public/ca.crt
+if [ -s "$CA" ]; then
+  install -o root -g root -m 644 "$CA" /etc/caddy/public/ca.crt
 fi
 if systemctl is-active --quiet caddy; then
   systemctl reload caddy || systemctl restart caddy

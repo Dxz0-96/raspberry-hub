@@ -56,8 +56,8 @@ npx playwright test
 
 # in the repository root
 python3 -m unittest discover -s pi/tests
-bash -n pi/*.sh pi/hub-cert-sync
-shellcheck --severity=warning pi/*.sh pi/hub-cert-sync   # if you have ShellCheck
+bash -n pi/*.sh pi/hub-cert-sync pi/hub-cert pi/kiwix-start
+shellcheck --severity=warning pi/*.sh pi/hub-cert-sync pi/hub-cert pi/kiwix-start   # if you have ShellCheck
 ```
 
 Also check that:

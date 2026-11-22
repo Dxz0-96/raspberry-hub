@@ -11,6 +11,8 @@
 #                                     without downloading them
 #   sudo hub-update.sh status         only rewrites /srv/hub/status.json
 #   sudo hub-update.sh check-version  asks GitHub for the latest release (hub-version-check.timer, daily)
+#   hub-update.sh scheduled           what hub-update.timer runs on the 1st of the month: waits for a system update
+#                                     still running, updates everything, checks the hub, reports a failure
 #
 # Every new piece of content is downloaded on the side, verified and swapped with the old one only
 # if it is intact: if something goes wrong the previous version keeps working.
@@ -423,6 +425,25 @@ PY
   write_status
 }
 
+# --------------------------------------------------------------------------- Monthly (hub-update.timer)
+# The system and Pi-hole first: with the pi-setup package its monthly update runs at 03:00 and reboots, and apt
+# may be busy at any time. Up to 3 hours, then the content goes ahead anyway.
+wait_for_system_update() {
+  local waited=0
+  while pgrep -f '/monthly-update\.sh' >/dev/null || pgrep -x 'apt|apt-get|dpkg|unattended-upgr' >/dev/null; do
+    [ "$waited" -eq 0 ] && log "a system update is running: the hub content waits for it"
+    [ "$waited" -ge 10800 ] && { log "still running after 3 hours: going ahead"; return 0; }
+    sleep 60; waited=$(( waited + 60 ))
+  done
+}
+
+notify_failure() {    # the network monitor of pi-setup sends it on Telegram, when it is installed
+  if [ -x /usr/local/bin/netmon ]; then
+    /usr/local/bin/netmon notify "⚠️ Hub: updating Wikipedia, maps or addresses failed: see journalctl -u hub-update" \
+      >/dev/null 2>&1 || true
+  fi
+}
+
 # --------------------------------------------------------------------------- start
 # Sourced by .github/scripts/check-sources.sh for the settings and functions above: nothing below runs then.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
@@ -436,6 +457,7 @@ WHAT=$(english "${1:-all}")
 PARTS=" "
 case "$WHAT" in
   status|estimate-maps|check-version) ;;
+  scheduled) PARTS=" all " ;;
   *) for word in "${@:-all}"; do
        word=$(english "$word")
        case "$word" in all|wiki|maps|addresses) PARTS+="$word " ;; *) usage ;; esac
@@ -448,6 +470,8 @@ if [ "$WHAT" = estimate-maps ]; then do_estimate_maps "${2:-}"; exit $?; fi
 if [ "$WHAT" = status ]; then write_status; exit 0; fi
 if [ "$WHAT" = check-version ]; then do_check_version; exit 0; fi
 
+if [ "$WHAT" = scheduled ]; then wait_for_system_update; fi
+
 # Only one update per content at a time (wiki, maps and addresses can run together).
 lock() { exec {fd}>"/run/hub-update-$1.lock"; flock -n "$fd"; }
 rc=0
@@ -459,4 +483,9 @@ for part in wiki maps addresses; do
   running "$part" no
 done
 log "===== end (result: $([ $rc -eq 0 ] && echo ok || echo 'with errors'))"
+if [ "$WHAT" = scheduled ]; then
+  # as after a boot: if something did not come back, the hub shows an alert
+  /usr/local/sbin/hub-check.sh --wait --report /run/hub-check.json >/dev/null 2>&1 || true
+  [ $rc -eq 0 ] || notify_failure
+fi
 exit $rc

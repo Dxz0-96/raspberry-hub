@@ -406,6 +406,47 @@ class WikipediaChoice(unittest.TestCase):
         self.assertEqual(self.values(), before)
 
 
+@unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("openssl"), "Bash and openssl")
+class HomeCertificate(unittest.TestCase):
+    """hub-cert: the home CA of the hub when the pi-setup package is not there."""
+
+    def setUp(self):
+        self.ca = os.path.join(tempfile.mkdtemp(), "hub-ca")
+        self.addCleanup(shutil.rmtree, os.path.dirname(self.ca), True)
+
+    def cert(self, what, ip="192.0.2.10"):
+        return subprocess.run(["bash", os.path.join(PI, "hub-cert"), what], capture_output=True, text=True,
+                              env={**os.environ, "HUB_CA_DIR": self.ca, "PI_IP": ip, "HUB_CERT_ANY_USER": "1"})
+
+    def openssl(self, *args):
+        return subprocess.run(["openssl", *args], capture_output=True, text=True)
+
+    def test_a_certificate_for_the_raspberry_pi_signed_by_its_own_ca(self):
+        self.assertIn("nothing to renew", self.cert("renew").stdout)      # the weekly timer never creates a CA
+        self.assertFalse(os.path.exists(os.path.join(self.ca, "ca.key")))
+        result = self.cert("ensure")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("home CA created", result.stdout)
+        tls = os.path.join(self.ca, "tls.pem")
+        self.assertEqual(os.stat(os.path.join(self.ca, "ca.key")).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(tls).st_mode & 0o077, 0)                  # the key is in it
+        self.assertEqual(self.openssl("verify", "-CAfile", os.path.join(self.ca, "ca.crt"), tls).returncode, 0)
+        names = self.openssl("x509", "-in", tls, "-noout", "-ext", "subjectAltName").stdout
+        for name in ("DNS:raspberry", "DNS:pi.hole", "IP Address:192.0.2.10"):
+            self.assertIn(name, names)
+        with open(tls, encoding="utf-8") as f:
+            first = f.read()
+        # still valid for a year: nothing changes
+        self.assertIn("valid until", self.cert("renew").stdout)
+        with open(tls, encoding="utf-8") as f:
+            self.assertEqual(f.read(), first)
+        # the Raspberry Pi got another address: a new certificate, from the same CA
+        self.assertIn("certificate issued", self.cert("renew", ip="192.0.2.20").stdout)
+        names = self.openssl("x509", "-in", tls, "-noout", "-ext", "subjectAltName").stdout
+        self.assertIn("IP Address:192.0.2.20", names)
+        self.assertEqual(self.openssl("verify", "-CAfile", os.path.join(self.ca, "ca.crt"), tls).returncode, 0)
+
+
 @unittest.skipUnless(sys.platform.startswith("linux"), "Bash scripts with GNU tools")
 class WikipediaFiles(unittest.TestCase):
     """kiwix-start serves every link wikipedia_<language>.zim; hub-update.sh removes the other languages."""
@@ -487,7 +528,8 @@ class UpgradeFrom1x(unittest.TestCase):
 
     def migrate(self):
         result = subprocess.run([sys.executable, os.path.join(PI, "hub-migrate.py")], capture_output=True, text=True,
-                                env={**os.environ, "HUB_MIGRATE_ROOT": self.root})
+                                env={**os.environ, "HUB_MIGRATE_ROOT": self.root,
+                                     "HUB_PISETUP": self.path("/home/pi/pi-setup")})
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
@@ -576,6 +618,26 @@ class UpgradeFrom1x(unittest.TestCase):
         self.assertIn("nothing to migrate", self.migrate())
         self.assertEqual(self.read("/etc/hub.conf"), conf)
 
+
+    def test_the_monthly_update_leaves_pi_setup(self):
+        hub_migrate = load("hub_migrate_blocks", "hub-migrate.py")
+        before = "#!/bin/bash\nts() { date; }\n    apt-get -y upgrade\n"
+        after = '    echo "===== $(ts) riavvio ====="\n    reboot\n'
+        # the copy of the package with the block of 2.x, the installed one with the block of 1.x
+        self.write("/home/pi/pi-setup/monthly-update.sh", before + hub_migrate.MONTHLY_BLOCK + after)
+        self.write("/usr/local/sbin/monthly-update.sh", before + hub_migrate.MONTHLY_BLOCK_1X + after)
+        os.chmod(self.path("/usr/local/sbin/monthly-update.sh"), 0o750)
+        self.assertIn("hub block removed", self.migrate())
+        self.assertEqual(self.read("/home/pi/pi-setup/monthly-update.sh"), before + after)
+        self.assertEqual(self.read("/usr/local/sbin/monthly-update.sh"), before + after)
+        if sys.platform.startswith("linux"):
+            self.assertEqual(os.stat(self.path("/usr/local/sbin/monthly-update.sh")).st_mode & 0o777, 0o750)
+        self.assertIn("nothing to migrate", self.migrate())
+        # a call added by hand is not the hub's to remove (hub-install.sh then leaves hub-update.timer off)
+        by_hand = before + "    /usr/local/sbin/hub-update.sh all\n" + after
+        self.write("/usr/local/sbin/monthly-update.sh", by_hand)
+        self.assertIn("nothing to migrate", self.migrate())
+        self.assertEqual(self.read("/usr/local/sbin/monthly-update.sh"), by_hand)
 
     def test_wikipedia_waits_for_any_language(self):
         # 2.1: the built-in Wikipedia service needed the Italian edition

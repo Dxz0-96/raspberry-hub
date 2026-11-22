@@ -1,0 +1,12 @@
+[Unit]
+Description=raspberry-hub: update Wikipedia, maps and the address index (hub-update.sh)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# waits for a system update, updates what is due, then checks the hub (the result is in the hub, as after a boot)
+ExecStart=/usr/local/sbin/hub-update.sh scheduled
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=8h

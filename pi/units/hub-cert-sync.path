@@ -2,8 +2,9 @@
 Description=raspberry-hub: follows the renewals of the home HTTPS certificate
 
 [Path]
-# pihole-cert.sh writes the certificate here every time it is issued or renewed.
+# pihole-cert.sh (pi-setup) or hub-cert writes the certificate here every time it is issued or renewed.
 PathChanged=/etc/pihole/tls.pem
+PathChanged=/etc/hub-ca/tls.pem
 
 [Install]
 WantedBy=multi-user.target

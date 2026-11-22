@@ -29,7 +29,7 @@ Run from `hub/` unless noted. All of them must pass before you say a change is d
 | End-to-end tests | `npx playwright test` (Chromium: `npx playwright install chromium` once) |
 | Mock Raspberry Pi for manual checks | `npm run mock`, then http://localhost:8790 (admin / test1234) |
 | Pi script tests (repository root) | `python3 -m unittest discover -s pi/tests` |
-| Shell scripts (repository root) | `bash -n pi/*.sh pi/hub-cert-sync` and `shellcheck --severity=warning pi/*.sh pi/hub-cert-sync` |
+| Shell scripts (repository root) | `bash -n pi/*.sh pi/hub-cert-sync pi/hub-cert pi/kiwix-start` and `shellcheck --severity=warning pi/*.sh pi/hub-cert-sync pi/hub-cert pi/kiwix-start` |
 | Commit message check | `bash .github/scripts/check-commits.sh "<message>"` |
 
 The hub-control tests in `pi/tests` need Linux (`/proc`) and are skipped elsewhere; CI runs them.

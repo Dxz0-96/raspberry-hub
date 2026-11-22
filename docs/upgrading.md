@@ -15,11 +15,18 @@ switch states and the Caddy configuration; a few MB. The downloaded Wikipedia, m
 included: an update does not replace them, and they can always be downloaded again.
 
 ```bash
+sudo hub-install.sh backup
+```
+
+It writes `~/hub-backup-YYYY-MM-DD.tar.gz`, readable only by you: it holds the password hash and the key of the
+home CA of the hub. Installed versions before 2.2 do not have the command yet; this does the same:
+
+```bash
 sudo tar --ignore-failed-read -czf ~/hub-backup.tar.gz /etc/hub.conf /etc/hub-control /etc/caddy /srv/hub/config /srv/hub/icons /srv/hub/icone /var/lib/hub-control
 ```
 
 (`/srv/hub/icone` is where 1.x kept the icons; `--ignore-failed-read` skips whichever of the two is missing.)
-Copy `~/hub-backup.tar.gz` to the PC if you want it off the SD card.
+Copy the archive to the PC if you want it off the SD card.
 
 ### 2. Get the new version and update
 
