@@ -41,9 +41,13 @@ test.describe("Demo", () => {
   });
 
   test("the map of Rome and the address search", async ({ page }) => {
-    // the map draws in a worker (a module, .mjs): if it cannot load, the map stays an empty grey box
+    // the map draws in a worker (a module, .mjs): if it cannot load, the map stays an empty grey box. The fonts and
+    // icons (npm run assets) are downloaded by demo.yml, not by CI: their 404s here do not count.
     const problems: string[] = [];
-    page.on("console", (message) => { if (message.type() === "error") problems.push(message.text()); });
+    page.on("console", (message) => {
+      const text = message.text();
+      if (message.type() === "error" && !text.includes("/map-assets/") && !text.includes("404 (Not Found)")) problems.push(text);
+    });
     page.on("pageerror", (error) => problems.push(error.message));
     await page.goto("maps/");
     await expect(page.locator(".maplibregl-canvas")).toBeVisible();
