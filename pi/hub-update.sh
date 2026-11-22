@@ -23,7 +23,6 @@ export LC_ALL=C.UTF-8
 
 WIKI_LANGUAGE=it
 WIKI_VARIANT=maxi
-MAP_COUNTRY=IT
 MAP_BBOX=6.6,35.4,18.6,47.2
 MAP_MAXZOOM=15
 ADDRESS_DUMP_URL=https://download1.graphhopper.com/public/europe/italy/photon-dump-italy-1.0-latest.jsonl.zst
