@@ -141,6 +141,12 @@ function useSmoothValue(value: number | null | undefined): number | null {
   return shown;
 }
 
+/** A reading that glides to its new value. Only this text is drawn again on every frame of the glide, not the
+ *  whole board: the home page has two boards (one hidden, for the other screen size). */
+function Smooth({ value, format }: { value: number | null | undefined; format: (shown: number | null) => string }) {
+  return <>{format(useSmoothValue(value))}</>;
+}
+
 function megabit(bps: number): string {
   const mbit = bps / 1_000_000;
   if (mbit >= 100) return mbit.toFixed(0);
@@ -150,8 +156,6 @@ function megabit(bps: number): string {
 }
 
 function Drawing({ g, s, orientation, cable = false }: { g: Geometry; s: SystemInfo | null; orientation: Orientation; cable?: boolean }) {
-  const cpu = useSmoothValue(s?.cpu.usage);
-  const temp = useSmoothValue(s?.temp);
   const vert = orientation === "vertical";
   const L = g.label;
   const used = s ? bytes(s.mem.used, "en") : null;
@@ -266,10 +270,10 @@ function Drawing({ g, s, orientation, cable = false }: { g: Geometry; s: SystemI
       <rect className="s-chip-edge" x={soc.x + 7} y={soc.y + 7} width={soc.w - 14} height={soc.h - 14} rx="5" />
       <text className="s-label" x={soc.x + 14} y={soc.y + 30} fontSize={L}>BCM2837 CPU</text>
       <text className="s-value" x={soc.x + 14} y={soc.y + 74} fontSize="42">
-        {cpu === null ? "–" : `${Math.round(cpu)}%`}
+        <Smooth value={s?.cpu.usage} format={(cpu) => (cpu === null ? "–" : `${Math.round(cpu)}%`)} />
       </text>
       <text className={`s-value${hot ? " fault" : ""}`} x={soc.x + 14} y={soc.y + 105} fontSize="25">
-        {temp === null ? "– °C" : `${temp.toFixed(1)} °C`}
+        <Smooth value={s?.temp} format={(temp) => (temp === null ? "– °C" : `${temp.toFixed(1)} °C`)} />
       </text>
       <text className="s-label" x={soc.x + 14} y={soc.y + 129} fontSize={L}>
         {s ? `load ${s.cpu.load[0].toFixed(2)}` : ""}
@@ -375,70 +379,4 @@ export function Board({ orientation = "horizontal", cable = false }: { orientati
     );
   }
   return <Drawing g={orientation === "vertical" ? VERTICAL : HORIZONTAL} s={system} orientation={orientation} cable={cable} />;
-}
-
-/** The compact board for phones: same main components, only the five readings. */
-export function CompactBoard() {
-  const { system: s } = useHub();
-  const cpu = useSmoothValue(s?.cpu.usage);
-  const temp = useSmoothValue(s?.temp);
-  const used = s ? bytes(s.mem.used, "en") : null;
-  const disk = s ? bytes(s.disk.used, "en") : null;
-  const hot = s?.alerts.includes("temperature") ?? false;
-  const full = s?.alerts.includes("disk") ?? false;
-  const powerFault = Boolean(s?.power && (s.power.undervoltage || s.power.throttled));
-  const voltage = s?.power ? (s.power.undervoltage ? "low volt" : s.power.throttled ? "throttled" : "5 V ok") : "5 V";
-  const description = s
-    ? `Raspberry Pi board. CPU ${Math.round(s.cpu.usage)} percent, ${s.temp ?? "unknown"} degrees Celsius. Memory ${used?.value} ${used?.unit}. ` +
-      `microSD ${disk?.value} ${disk?.unit} used. Ethernet in ${megabit(s.net.rx)}, out ${megabit(s.net.tx)} megabit per second. Power ${voltage}.`
-    : "Raspberry Pi board. Waiting for readings.";
-  return (
-    <svg className="board compact" viewBox="-1 -1 345 232" role="img" aria-label={description}>
-      <rect className="s-base" x="0" y="0" width="343" height="226" rx="11" />
-      <g className="s-traces thin">
-        {["M118 64V44H74V27", "M174 86H184", "M174 132H250V150H270", "M86 124H68V136H24V152", "M65 204V194H130V150", "M152 150V204"].map((d, i) => (
-          <path key={d} d={d} pathLength={1} style={{ animationDelay: `${100 + i * 70}ms` }} />
-        ))}
-      </g>
-      {[[16, 17], [246, 17], [16, 209], [246, 209]].map(([x, y]) => (
-        <g key={`${x}-${y}`}>
-          <circle className="s-ring thin" cx={x} cy={y} r="6.5" />
-          <circle className="s-hole" cx={x} cy={y} r="3.5" />
-        </g>
-      ))}
-      <rect className="s-black" x="30" y="8" width="204" height="18" rx="2" />
-      {Array.from({ length: 40 }, (_, i) => (
-        <rect key={i} className="s-gold" x={35 + Math.floor(i / 2) * 10} y={i % 2 === 0 ? 11 : 19} width="4.5" height="4.5" rx="0.8" />
-      ))}
-
-      <rect className={`s-chip${hot ? " fault" : ""}`} x="86" y="64" width="88" height="86" rx="5" />
-      <text className="s-label" x="95" y="82" fontSize="11.5">CPU</text>
-      <text className="s-value" x="95" y="110" fontSize="23">{cpu === null ? "–" : `${Math.round(cpu)}%`}</text>
-      <text className={`s-value${hot ? " fault" : ""}`} x="95" y="134" fontSize="15">
-        {temp === null ? "– °C" : `${Math.round(temp)} °C`}
-      </text>
-
-      <rect className="s-underside" x="184" y="64" width="78" height="54" rx="4" />
-      <text className="s-label" x="191" y="82" fontSize="11.5">RAM</text>
-      <text className="s-value" x="191" y="104" fontSize="15">{used ? `${used.value} ${used.unit}` : "–"}</text>
-
-      <rect className="s-tin" x="282" y="32" width="62" height="34" rx="3" />
-      <rect className="s-tin" x="282" y="74" width="62" height="34" rx="3" />
-      <rect className="s-tin" x="270" y="122" width="74" height="78" rx="3" />
-      <text className="s-on-tin" x="277" y="140" fontSize="11.5">LAN</text>
-      <text className="s-on-tin strong" x="277" y="160" fontSize="13">in {s ? megabit(s.net.rx) : "–"}</text>
-      <text className="s-on-tin strong" x="277" y="178" fontSize="13">out {s ? megabit(s.net.tx) : "–"}</text>
-      <text className="s-on-tin" x="277" y="194" fontSize="11">Mbit/s</text>
-
-      <rect className={`s-underside${full ? " fault" : ""}`} x="-1" y="152" width="80" height="42" rx="3" />
-      <rect className="s-chip" x="-1" y="158" width="8" height="30" rx="1.5" />
-      <text className="s-label" x="14" y="169" fontSize="11.5">microSD</text>
-      <text className={`s-value${full ? " fault" : ""}`} x="14" y="187" fontSize="15">{disk ? `${disk.value} ${disk.unit}` : "–"}</text>
-
-      <rect className="s-tin" x="36" y="204" width="58" height="24" rx="3" />
-      <text className={`s-on-tin strong${powerFault ? " fault" : ""}`} x="42" y="220" fontSize="12.5">{voltage}</text>
-      <rect className="s-tin" x="126" y="204" width="58" height="24" rx="3" />
-      <text className="s-label" x="258" y="220" fontSize="11.5">{s ? `up ${duration(s.uptime, "en")}` : ""}</text>
-    </svg>
-  );
 }

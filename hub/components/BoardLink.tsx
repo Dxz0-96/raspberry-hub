@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { useI18n } from "@/lib/i18n";
 
-/** On phones the compact board on the home page opens the hardware page. */
+/** On phones the board on the home page (the detailed one, turned vertical) opens the hardware page. */
 export function BoardLink({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   return (

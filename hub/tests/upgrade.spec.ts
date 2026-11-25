@@ -147,10 +147,11 @@ test.describe("New version", () => {
     await dialog.getByRole("button", { name: `Go back to ${installed}` }).click();
     await expect(dialog.getByRole("status")).toContainText(`Going back to ${installed}`);
     expect(pi.rolledBack).toBe(installed);
-    // the Raspberry Pi answers with the old version again: its website is loaded
+    // the Raspberry Pi answers with the old version again: its website is loaded. The dialog checks every 5
+    // seconds from just after "Going back" appears, so the clock moves on by two checks
     pi.installed = installed;
     const reloaded = page.waitForEvent("load");
-    await page.clock.runFor(5000);
+    await page.clock.runFor(10000);
     await reloaded;
   });
 

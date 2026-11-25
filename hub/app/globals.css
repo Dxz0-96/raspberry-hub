@@ -427,10 +427,6 @@ input {
   stroke-width: 3;
 }
 
-.board.compact .s-base {
-  stroke-width: 1.5;
-}
-
 .s-traces path {
   fill: none;
   stroke: var(--pcb-trace);
@@ -440,10 +436,6 @@ input {
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
   animation: trace-draw 0.9s cubic-bezier(0.3, 0, 0.2, 1) forwards;
-}
-
-.s-traces.thin path {
-  stroke-width: 1.6;
 }
 
 @keyframes trace-draw {
@@ -456,10 +448,6 @@ input {
   fill: var(--pcb);
   stroke: var(--pcb-gold);
   stroke-width: 9;
-}
-
-.s-ring.thin {
-  stroke-width: 3;
 }
 
 .s-hole {
@@ -529,11 +517,6 @@ input {
   stroke: #6fa67c;
   stroke-width: 1.5;
   stroke-dasharray: 7 5;
-}
-
-.board.compact .s-underside {
-  stroke-width: 0.9;
-  stroke-dasharray: 3 2.2;
 }
 
 .s-underside.fault {
