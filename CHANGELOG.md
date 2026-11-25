@@ -6,6 +6,13 @@ All notable changes to this project. From 2.0.0 on, entries are written by
 [Semantic Versioning](https://semver.org/). How to upgrade, and what changes between major versions:
 [docs/upgrading.md](docs/upgrading.md).
 
+## [2.3.0](https://github.com/Dxz0-96/raspberry-hub/compare/v2.2.2...v2.3.0) (2026-11-25)
+
+
+### Features
+
+* **hub:** the detailed Raspberry Pi board on phones too ([#59](https://github.com/Dxz0-96/raspberry-hub/issues/59)) ([6884b35](https://github.com/Dxz0-96/raspberry-hub/commit/6884b35b7af83e0bb633eee496a30297b47185b3))
+
 ## [2.2.2](https://github.com/Dxz0-96/raspberry-hub/compare/v2.2.1...v2.2.2) (2026-11-22)
 
 
