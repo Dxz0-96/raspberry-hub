@@ -13,6 +13,9 @@ export const test = base.extend({
       return response;
     };
     await use(page);
+    // the hub keeps polling until the very end: a page.route handler still reading a response when the
+    // browser context closes ("Response has been disposed") must not fail a test that already passed
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   },
 });
 

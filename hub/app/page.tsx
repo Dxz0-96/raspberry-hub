@@ -1,4 +1,4 @@
-import { Board, CompactBoard } from "@/components/Board";
+import { Board } from "@/components/Board";
 import { BoardLink } from "@/components/BoardLink";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
@@ -21,7 +21,7 @@ export default function Home() {
               <Board cable />
             </div>
             <BoardLink>
-              <CompactBoard />
+              <Board orientation="vertical" />
             </BoardLink>
           </div>
           <Services />
